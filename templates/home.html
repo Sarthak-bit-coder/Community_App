@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}Home{% endblock %}
+{% block content %}
+<section class="hero">
+  <div class="container hero-grid">
+    <div>
+      <span class="eyebrow">Community safety, made simple</span>
+      <h1>See what's happening on your block.</h1>
+      <p class="lead">Report safety issues in seconds, follow what neighbors are seeing, and get an email when something comes up in your ZIP code.</p>
+      <div class="hero-actions">
+        <a class="btn btn-primary btn-lg" href="{{ url_for('new_report_page') }}">Report an issue</a>
+        <a class="btn btn-ghost btn-lg" href="{{ url_for('reports_page') }}">Browse reports</a>
+      </div>
+      {% if not current_user %}
+      <p class="muted small" style="margin-top:18px">
+        <a href="{{ url_for('signup_page') }}">Create a free account</a> to get alerts for your area.
+      </p>
+      {% endif %}
+    </div>
+    <div id="heroMap" class="hero-map"></div>
+  </div>
+</section>
+
+<div class="container">
+  <div class="stats">
+    <div class="card stat"><div class="num">{{ total }}</div><div class="label">Reports filed</div></div>
+    <div class="card stat"><div class="num" style="color:var(--open)">{{ open_count }}</div><div class="label">Still open</div></div>
+    <div class="card stat"><div class="num" style="color:var(--ok)">{{ resolved }}</div><div class="label">Resolved</div></div>
+  </div>
+
+  <section class="section">
+    <div class="section-head"><h2>How it works</h2></div>
+    <div class="steps">
+      <div class="card step">
+        <div class="step-num">1</div>
+        <h3>Spot something</h3>
+        <p>A broken streetlight, a hazard, something that doesn't look right.</p>
+      </div>
+      <div class="card step">
+        <div class="step-num">2</div>
+        <h3>Drop a pin</h3>
+        <p>Describe it, add a photo, and mark the exact spot on the map.</p>
+      </div>
+      <div class="card step">
+        <div class="step-num">3</div>
+        <h3>Neighbors get notified</h3>
+        <p>Everyone signed up in that ZIP gets an email alert right away.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="section-head">
+      <h2>Latest reports</h2>
+      <a href="{{ url_for('reports_page') }}">View all →</a>
+    </div>
+    {% if recent %}
+    <div class="report-grid">
+      {% for r in recent %}
+      <div class="report-card">
+        <div class="body">
+          <div class="report-top">
+            <h3>{{ r.type }}</h3>
+            {% if r.resolved %}<span class="badge badge-ok">Resolved</span>{% else %}<span class="badge badge-open">Open</span>{% endif %}
+          </div>
+          <p class="desc">{{ r.description|truncate(110) }}</p>
+          <div class="meta"><span>ZIP {{ r.zip }}</span></div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty">No reports yet. <a href="{{ url_for('new_report_page') }}">Be the first to file one.</a></div>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  (async () => {
+    const map = L.map('heroMap', { scrollWheelZoom: false }).setView([37.7749, -122.4194], 12);
+    baseTiles(map);
+    try {
+      const reports = (await (await fetch('/api/reports')).json()).filter(r => r.lat && r.lng);
+      reports.forEach(r => L.marker([r.lat, r.lng], { icon: pin(r.resolved) }).addTo(map)
+        .bindPopup(`<strong>${esc(r.type)}</strong><br>${esc(r.description)}`));
+      if (reports.length) map.fitBounds(reports.map(r => [r.lat, r.lng]), { padding: [40, 40], maxZoom: 13 });
+    } catch (e) {}
+  })();
+</script>
+{% endblock %}

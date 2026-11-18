@@ -1,4 +1,27 @@
-<form method="POST">
-  <input type="email" name="email" placeholder="Email" required><br>
-  <button type="submit">Log In</button>
-</form>
+{% extends "base.html" %}
+{% block title %}Log in{% endblock %}
+{% block content %}
+<div class="auth-wrap">
+  <div class="auth-card">
+    <div class="card">
+      <div class="auth-head">
+        <div class="brand-mark">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        </div>
+        <h2>Welcome back</h2>
+        <p class="muted" style="margin:0">Log in to see reports near you.</p>
+      </div>
+      {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+      <form method="POST">
+        <div class="field">
+          <label for="email">Email</label>
+          <input class="input" id="email" type="email" name="email" placeholder="you@example.com" required autofocus
+                 value="{{ request.form.get('email', '') }}">
+        </div>
+        <button class="btn btn-primary btn-block btn-lg" type="submit">Log in</button>
+      </form>
+    </div>
+    <p class="auth-foot">New here? <a href="{{ url_for('signup_page') }}">Create an account</a></p>
+  </div>
+</div>
+{% endblock %}

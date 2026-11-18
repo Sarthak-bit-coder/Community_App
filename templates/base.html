@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}Neighborhood Watch{% endblock %} · Neighborhood Watch</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+  {% block head %}{% endblock %}
+</head>
+<body>
+  <nav class="nav">
+    <div class="container">
+      <a class="brand" href="{{ url_for('home') }}">
+        <span class="brand-mark">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        </span>
+        Neighborhood Watch
+      </a>
+      <div class="nav-links">
+        <a class="link {% if request.endpoint == 'reports_page' %}active{% endif %}" href="{{ url_for('reports_page') }}">Reports</a>
+        <a class="link {% if request.endpoint == 'admin_page' %}active{% endif %}" href="{{ url_for('admin_page') }}">Admin</a>
+        {% if current_user %}
+          <span class="nav-user">Hi, {{ current_user.name }}</span>
+          <a class="link" href="{{ url_for('logout') }}">Log out</a>
+        {% else %}
+          <a class="link {% if request.endpoint == 'login_page' %}active{% endif %}" href="{{ url_for('login_page') }}">Log in</a>
+          <a class="link {% if request.endpoint == 'signup_page' %}active{% endif %}" href="{{ url_for('signup_page') }}">Sign up</a>
+        {% endif %}
+        <a class="btn btn-primary btn-sm" href="{{ url_for('new_report_page') }}">Report an issue</a>
+      </div>
+    </div>
+  </nav>
+
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="footer">
+    <div class="container">
+      <span>© Neighborhood Watch</span>
+      <span>Keeping our streets safe, together.</span>
+    </div>
+  </footer>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    function esc(s) {
+      return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    }
+    function toast(msg) {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.classList.add('show');
+      clearTimeout(window.__toastT);
+      window.__toastT = setTimeout(() => t.classList.remove('show'), 2600);
+    }
+    function baseTiles(map) {
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© <a href="https://openstreetmap.org">OpenStreetMap</a>'
+      }).addTo(map);
+      // Leaflet measures its container once; re-measure after layout settles and on resize.
+      setTimeout(() => map.invalidateSize(), 150);
+      new ResizeObserver(() => map.invalidateSize()).observe(map.getContainer());
+    }
+    function pin(resolved) {
+      return L.divIcon({
+        className: '',
+        html: `<div style="width:16px;height:16px;border-radius:50%;background:${resolved ? '#15803d' : '#c2410c'};border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.35)"></div>`,
+        iconSize: [16, 16], iconAnchor: [8, 8]
+      });
+    }
+  </script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% block title %}Report an issue{% endblock %}
+{% block content %}
+<div class="container">
+  <div class="page-head">
+    <div>
+      <h1>Report an issue</h1>
+      <p class="muted">Neighbors in the same ZIP code get an email alert when you submit.</p>
+    </div>
+  </div>
+
+  <form id="reportForm" enctype="multipart/form-data">
+    <div class="new-report-grid">
+      <div class="card">
+        <div id="formMsg"></div>
+        <div class="field">
+          <label for="type">What kind of issue?</label>
+          <select class="select" id="type" name="type" required>
+            <option value="" disabled selected>Choose a category</option>
+            <option>Suspicious activity</option>
+            <option>Theft or break-in</option>
+            <option>Vandalism</option>
+            <option>Road or sidewalk hazard</option>
+            <option>Broken streetlight</option>
+            <option>Noise</option>
+            <option>Other</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="description">Description</label>
+          <textarea class="textarea" id="description" name="description" placeholder="What happened, and when?" required></textarea>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="zip">ZIP code</label>
+            <input class="input" id="zip" name="zip" inputmode="numeric" maxlength="10" required
+                   value="{{ current_user.zip if current_user else '' }}">
+            <span class="hint">We'll move the map to this ZIP.</span>
+          </div>
+          <div class="field">
+            <label for="phone">Phone</label>
+            <input class="input" id="phone" name="phone" type="tel" required>
+          </div>
+        </div>
+        <div class="field">
+          <label for="email">Email</label>
+          <input class="input" id="email" name="email" type="email" required
+                 value="{{ current_user.email if current_user else '' }}">
+          <span class="hint">Used so you can mark your own report as resolved later.</span>
+        </div>
+        <div class="field">
+          <label for="image">Photo <span class="muted">(optional)</span></label>
+          <input class="file-drop" id="image" name="image" type="file" accept="image/*">
+        </div>
+        <input type="hidden" name="lat" id="lat">
+        <input type="hidden" name="lng" id="lng">
+        <button class="btn btn-primary btn-lg btn-block" type="submit" id="submitBtn">Submit report</button>
+      </div>
+
+      <div class="card" style="display:flex;flex-direction:column;gap:12px">
+        <div>
+          <h3 style="margin:0">Where did it happen?</h3>
+          <p class="muted small" style="margin:0">Click the map or drag the pin to the exact spot.</p>
+        </div>
+        <div id="map" class="pick-map" style="flex:1"></div>
+      </div>
+    </div>
+  </form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const form = document.getElementById('reportForm');
+  const msg = document.getElementById('formMsg');
+  const btn = document.getElementById('submitBtn');
+
+  const map = L.map('map').setView([37.7749, -122.4194], 13);
+  baseTiles(map);
+  const marker = L.marker([37.7749, -122.4194], { draggable: true }).addTo(map);
+
+  function setLatLng({ lat, lng }) {
+    document.getElementById('lat').value = lat;
+    document.getElementById('lng').value = lng;
+  }
+  setLatLng(marker.getLatLng());
+  marker.on('dragend', e => setLatLng(e.target.getLatLng()));
+  map.on('click', e => { marker.setLatLng(e.latlng); setLatLng(e.latlng); });
+
+  async function goToZip(zip) {
+    if (!/^\d{5}$/.test(zip)) return;
+    try {
+      const r = await fetch(`https://nominatim.openstreetmap.org/search?postalcode=${zip}&format=json&countrycodes=us`);
+      const results = await r.json();
+      if (results.length) {
+        const ll = { lat: parseFloat(results[0].lat), lng: parseFloat(results[0].lon) };
+        map.setView(ll, 15);
+        marker.setLatLng(ll);
+        setLatLng(ll);
+      }
+    } catch (e) {}
+  }
+  const zipEl = document.getElementById('zip');
+  zipEl.addEventListener('blur', () => goToZip(zipEl.value.trim()));
+  if (zipEl.value) goToZip(zipEl.value.trim());
+
+  form.addEventListener('submit', async e => {
+    e.preventDefault();
+    btn.disabled = true;
+    btn.textContent = 'Submitting…';
+    msg.innerHTML = '';
+    try {
+      const res = await fetch('/api/reports', { method: 'POST', body: new FormData(form) });
+      if (res.ok) {
+        window.location.href = '{{ url_for("reports_page") }}';
+        return;
+      }
+      const err = await res.json().catch(() => ({}));
+      msg.innerHTML = `<div class="alert alert-error">${esc(err.error || 'Something went wrong. Please try again.')}</div>`;
+    } catch (e) {
+      msg.innerHTML = `<div class="alert alert-error">Network error. Please try again.</div>`;
+    }
+    btn.disabled = false;
+    btn.textContent = 'Submit report';
+  });
+</script>
+{% endblock %}

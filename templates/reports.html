@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% block title %}Reports{% endblock %}
+{% block content %}
+<div class="container">
+  <div class="page-head">
+    <div>
+      <h1>Community reports</h1>
+      <p class="muted">Everything neighbors have reported. Click a report to find it on the map.</p>
+    </div>
+    <div class="toolbar">
+      <div class="tabs" id="statusTabs">
+        <button class="tab active" data-status="all">All</button>
+        <button class="tab" data-status="open">Open</button>
+        <button class="tab" data-status="resolved">Resolved</button>
+      </div>
+      <input class="input" id="zipFilter" placeholder="Filter by ZIP" inputmode="numeric"
+             value="{{ current_user.zip if current_user else '' }}" />
+    </div>
+  </div>
+
+  <div class="reports-layout">
+    <div>
+      <p class="muted small" id="count" style="margin-bottom:12px"></p>
+      <div class="report-list" id="reports"></div>
+    </div>
+    <div id="map" class="reports-map"></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const listEl = document.getElementById('reports');
+  const countEl = document.getElementById('count');
+  const zipInput = document.getElementById('zipFilter');
+  let status = 'all';
+  let all = [];
+  const markers = {};
+
+  const map = L.map('map').setView([37.7749, -122.4194], 12);
+  baseTiles(map);
+  const layer = L.layerGroup().addTo(map);
+
+  document.querySelectorAll('#statusTabs .tab').forEach(btn => btn.addEventListener('click', () => {
+    document.querySelectorAll('#statusTabs .tab').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    status = btn.dataset.status;
+    render();
+  }));
+  zipInput.addEventListener('input', render);
+
+  async function load() {
+    all = await (await fetch('/api/reports')).json();
+    render();
+  }
+
+  function render() {
+    const zip = zipInput.value.trim();
+    const items = all.filter(r =>
+      (!zip || r.zip === zip) &&
+      (status === 'all' || (status === 'open' ? !r.resolved : r.resolved)));
+
+    countEl.textContent = `${items.length} report${items.length === 1 ? '' : 's'}`;
+    layer.clearLayers();
+    listEl.innerHTML = '';
+
+    if (!items.length) {
+      listEl.innerHTML = `<div class="empty">No reports match these filters.</div>`;
+      return;
+    }
+
+    items.forEach(r => {
+      const card = document.createElement('div');
+      card.className = 'report-card' + (r.lat && r.lng ? ' clickable' : '');
+      card.innerHTML = `
+        ${r.imageUrl ? `<img class="thumb" src="${esc(r.imageUrl)}" alt="">` : ''}
+        <div class="body">
+          <div class="report-top">
+            <h3>${esc(r.type)}</h3>
+            <span class="badge ${r.resolved ? 'badge-ok' : 'badge-open'}">${r.resolved ? 'Resolved' : 'Open'}</span>
+          </div>
+          <p class="desc">${esc(r.description)}</p>
+          <div class="meta">
+            <span>ZIP ${esc(r.zip)}</span>
+            <a href="mailto:${esc(r.email)}">${esc(r.email)}</a>
+            <a href="tel:${esc(r.phone)}">${esc(r.phone)}</a>
+          </div>
+          ${!r.resolved ? `<div class="actions"><button class="btn btn-ok btn-sm" data-resolve="${r.id}">Mark resolved</button></div>` : ''}
+        </div>`;
+      listEl.appendChild(card);
+
+      if (r.lat && r.lng) {
+        const m = L.marker([r.lat, r.lng], { icon: pin(r.resolved) }).addTo(layer)
+          .bindPopup(`<strong>${esc(r.type)}</strong><br>${esc(r.description)}`);
+        markers[r.id] = m;
+        card.addEventListener('click', e => {
+          if (e.target.closest('button, a')) return;
+          document.querySelectorAll('.report-card.selected').forEach(c => c.classList.remove('selected'));
+          card.classList.add('selected');
+          map.setView([r.lat, r.lng], 16);
+          m.openPopup();
+        });
+      }
+    });
+
+    const pts = items.filter(r => r.lat && r.lng).map(r => [r.lat, r.lng]);
+    if (pts.length) map.fitBounds(pts, { padding: [40, 40], maxZoom: 14 });
+  }
+
+  listEl.addEventListener('click', async e => {
+    const id = e.target.dataset.resolve;
+    if (!id) return;
+    const res = await fetch(`/api/resolve/${id}`, { method: 'POST' });
+    if (res.ok) { toast('Marked as resolved'); load(); }
+    else toast(res.status === 403 ? 'Only the person who filed this (or an admin) can resolve it.' : 'Could not resolve this report.');
+  });
+
+  load();
+</script>
+{% endblock %}
