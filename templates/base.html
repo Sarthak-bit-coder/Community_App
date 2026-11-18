@@ -6,12 +6,27 @@
   <title>{% block title %}Neighborhood Watch{% endblock %} · Neighborhood Watch</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
   {% block head %}{% endblock %}
 </head>
 <body>
+  {% if banner %}
+  <div class="banner" id="banner" data-id="{{ banner.id }}" hidden>
+    <div class="container">
+      <span class="banner-tag">Urgent</span>
+      <span class="banner-text"><strong>{{ banner.title }}</strong> — {{ banner.body|truncate(120) }}</span>
+      <a href="{{ url_for('updates_page') }}">Details</a>
+      <button class="banner-close" aria-label="Dismiss" onclick="dismissBanner()">×</button>
+    </div>
+  </div>
+  {% endif %}
+
+  {% macro navlink(endpoint, label) -%}
+    <a class="link {% if request.endpoint and request.endpoint.startswith(endpoint) %}active{% endif %}" href="{{ url_for(endpoint) }}">{{ label }}</a>
+  {%- endmacro %}
+
   <nav class="nav">
     <div class="container">
       <a class="brand" href="{{ url_for('home') }}">
@@ -21,19 +36,35 @@
         Neighborhood Watch
       </a>
       <div class="nav-links">
-        <a class="link {% if request.endpoint == 'reports_page' %}active{% endif %}" href="{{ url_for('reports_page') }}">Reports</a>
-        <a class="link {% if request.endpoint == 'admin_page' %}active{% endif %}" href="{{ url_for('admin_page') }}">Admin</a>
+        {{ navlink('reports_page', 'Reports') }}
+        {{ navlink('lost_found_page', 'Lost & Found') }}
+        {{ navlink('updates_page', 'Updates') }}
+        {% if is_admin %}{{ navlink('admin_page', 'Admin') }}{% endif %}
         {% if current_user %}
-          <span class="nav-user">Hi, {{ current_user.name }}</span>
+          <a class="icon-link {% if request.endpoint == 'notifications_page' %}active{% endif %}" href="{{ url_for('notifications_page') }}" aria-label="Notifications">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+            {% if unread_count %}<span class="dot-count">{{ unread_count if unread_count < 100 else '99+' }}</span>{% endif %}
+          </a>
+          <a class="link {% if request.endpoint == 'account_page' %}active{% endif %}" href="{{ url_for('account_page') }}">{{ current_user.first_name }}</a>
           <a class="link" href="{{ url_for('logout') }}">Log out</a>
         {% else %}
-          <a class="link {% if request.endpoint == 'login_page' %}active{% endif %}" href="{{ url_for('login_page') }}">Log in</a>
-          <a class="link {% if request.endpoint == 'signup_page' %}active{% endif %}" href="{{ url_for('signup_page') }}">Sign up</a>
+          {{ navlink('login_page', 'Log in') }}
+          {{ navlink('signup_page', 'Sign up') }}
         {% endif %}
         <a class="btn btn-primary btn-sm" href="{{ url_for('new_report_page') }}">Report an issue</a>
       </div>
     </div>
   </nav>
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+    <div class="container flashes">
+      {% for cat, msg in messages %}
+        <div class="alert alert-{{ 'error' if cat == 'error' else ('success' if cat == 'success' else 'info') }}">{{ msg }}</div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  {% endwith %}
 
   <main>
     {% block content %}{% endblock %}
@@ -41,8 +72,13 @@
 
   <footer class="footer">
     <div class="container">
-      <span>© Neighborhood Watch</span>
-      <span>Keeping our streets safe, together.</span>
+      <span>© Neighborhood Watch · Keeping our streets safe, together.</span>
+      <span class="footer-links">
+        <a href="{{ url_for('reports_page') }}">Reports</a>
+        <a href="{{ url_for('lost_found_page') }}">Lost &amp; Found</a>
+        <a href="{{ url_for('updates_page') }}">Updates</a>
+        <a href="{{ url_for('admin_page') }}">Admin</a>
+      </span>
     </div>
   </footer>
 
@@ -74,6 +110,19 @@
         html: `<div style="width:16px;height:16px;border-radius:50%;background:${resolved ? '#15803d' : '#c2410c'};border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.35)"></div>`,
         iconSize: [16, 16], iconAnchor: [8, 8]
       });
+    }
+    // Urgent banner: hidden once the viewer dismisses that specific update.
+    (function () {
+      const b = document.getElementById('banner');
+      if (!b) return;
+      let dismissed = null;
+      try { dismissed = localStorage.getItem('nw-banner'); } catch (e) {}
+      if (dismissed !== b.dataset.id) b.hidden = false;
+    })();
+    function dismissBanner() {
+      const b = document.getElementById('banner');
+      b.hidden = true;
+      try { localStorage.setItem('nw-banner', b.dataset.id); } catch (e) {}
     }
   </script>
   {% block scripts %}{% endblock %}

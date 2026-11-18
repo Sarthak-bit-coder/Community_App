@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% from "_prefs.html" import alert_prefs %}
+{% block title %}Account{% endblock %}
+{% block content %}
+<div class="container" style="max-width:720px;padding-bottom:48px">
+  <div class="page-head">
+    <div>
+      <h1>Your account</h1>
+      <p class="muted">Choose where your alerts go.</p>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:16px">
+    {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+    <form method="POST">
+      <div class="row">
+        <div class="field">
+          <label for="name">Full name</label>
+          <input class="input" id="name" name="name" required value="{{ user.name }}">
+        </div>
+        <div class="field">
+          <label for="zip">ZIP code</label>
+          <input class="input" id="zip" name="zip" required maxlength="10" inputmode="numeric" value="{{ user.zip or '' }}">
+          <span class="hint">You get alerts for this ZIP.</span>
+        </div>
+      </div>
+      <div class="field">
+        <label>Email</label>
+        <input class="input" value="{{ user.email }}" disabled>
+      </div>
+      {{ alert_prefs(user.phone, user.notify_email, user.notify_sms, user.notify_whatsapp) }}
+      <button class="btn btn-primary" type="submit">Save settings</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h3>Test your alerts</h3>
+    <p class="muted small">Sends a test message to every channel you've turned on above.</p>
+    <div class="channel-status" style="margin-bottom:16px">
+      <span class="pill {{ 'on' if channels.email }}">Email {{ 'connected' if channels.email else 'not set up on server' }}</span>
+      <span class="pill {{ 'on' if channels.sms }}">SMS {{ 'connected' if channels.sms else 'not set up on server' }}</span>
+      <span class="pill {{ 'on' if channels.whatsapp }}">WhatsApp {{ 'connected' if channels.whatsapp else 'not set up on server' }}</span>
+    </div>
+    <form method="POST" action="{{ url_for('account_test') }}">
+      <button class="btn btn-ghost" type="submit">Send test notification</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

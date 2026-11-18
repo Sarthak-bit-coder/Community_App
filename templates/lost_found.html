@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}Lost & Found{% endblock %}
+{% block content %}
+<div class="container">
+  <div class="page-head">
+    <div>
+      <h1>Lost &amp; Found</h1>
+      <p class="muted">Lost something, or found something that isn't yours? Post it and we'll alert the neighbors.</p>
+    </div>
+    <div class="toolbar">
+      <a class="btn btn-ghost" href="{{ url_for('lost_found_new', kind='found') }}">I found something</a>
+      <a class="btn btn-primary" href="{{ url_for('lost_found_new', kind='lost') }}">I lost something</a>
+    </div>
+  </div>
+
+  <form class="toolbar" method="GET" style="margin-bottom:20px" id="filters">
+    <div class="tabs">
+      {% for k, label in [('all', 'All'), ('lost', 'Lost'), ('found', 'Found')] %}
+        <a class="tab {% if kind == k %}active{% endif %}" style="text-decoration:none"
+           href="{{ url_for('lost_found_page', kind=k, zip=zip or None, closed='1' if show_closed else None) }}">{{ label }}</a>
+      {% endfor %}
+    </div>
+    <input type="hidden" name="kind" value="{{ kind }}">
+    <input class="input" name="zip" placeholder="Filter by ZIP" inputmode="numeric" value="{{ zip }}">
+    <label class="small muted" style="display:flex;gap:6px;align-items:center">
+      <input type="checkbox" name="closed" value="1" {% if show_closed %}checked{% endif %} onchange="this.form.submit()"> Show reunited
+    </label>
+  </form>
+
+  {% if items %}
+  <div class="item-grid">
+    {% for it in items %}
+    <a class="item-card" href="{{ url_for('lost_found_detail', id=it.id) }}">
+      <div class="item-img">
+        {% if it.image_url %}<img src="{{ it.image_url }}" alt="">{% else %}
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21"/></svg>
+        {% endif %}
+      </div>
+      <div class="item-body">
+        <div class="report-top">
+          <h3>{{ it.title }}</h3>
+          {% if it.status == 'closed' %}<span class="badge badge-closed">Reunited</span>
+          {% elif it.kind == 'lost' %}<span class="badge badge-lost">Lost</span>
+          {% else %}<span class="badge badge-found">Found</span>{% endif %}
+        </div>
+        <p class="desc">{{ it.description|truncate(100) }}</p>
+        <div class="item-meta">
+          <span>{{ it.category }}</span>
+          <span>ZIP {{ it.zip }}</span>
+          <span>{{ it.created_at|ago }}</span>
+        </div>
+      </div>
+    </a>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty" style="margin-bottom:48px">
+    Nothing here yet.
+    <a href="{{ url_for('lost_found_new', kind='lost') }}">Post a lost item</a> or
+    <a href="{{ url_for('lost_found_new', kind='found') }}">a found one</a>.
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

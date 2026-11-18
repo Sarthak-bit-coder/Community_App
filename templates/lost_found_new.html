@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}Post to Lost & Found{% endblock %}
+{% block content %}
+<div class="container" style="max-width:720px;padding-bottom:48px">
+  <div class="page-head">
+    <div>
+      <h1>Post to Lost &amp; Found</h1>
+      <p class="muted">We'll alert neighbors in this ZIP, and match lost and found posts automatically.</p>
+    </div>
+  </div>
+
+  <div class="card">
+    {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+    <form method="POST" enctype="multipart/form-data">
+      <div class="field">
+        <label>What happened?</label>
+        <div class="choices two">
+          <label class="choice"><input type="radio" name="kind" value="lost" {% if form.get('kind') != 'found' %}checked{% endif %}><span>I lost something<small>Neighbors get asked to keep an eye out</small></span></label>
+          <label class="choice"><input type="radio" name="kind" value="found" {% if form.get('kind') == 'found' %}checked{% endif %}><span>I found something<small>Owners of matching lost items get alerted</small></span></label>
+        </div>
+      </div>
+      <div class="row">
+        <div class="field">
+          <label for="title">Item</label>
+          <input class="input" id="title" name="title" maxlength="120" placeholder="e.g. Black leather wallet" required value="{{ form.get('title', '') }}">
+        </div>
+        <div class="field">
+          <label for="category">Category</label>
+          <select class="select" id="category" name="category" required>
+            <option value="" disabled {% if not form.get('category') %}selected{% endif %}>Choose one</option>
+            {% for c in categories %}<option {% if form.get('category') == c %}selected{% endif %}>{{ c }}</option>{% endfor %}
+          </select>
+        </div>
+      </div>
+      <div class="field">
+        <label for="description">Description</label>
+        <textarea class="textarea" id="description" name="description" required placeholder="Colour, brand, markings, anything that helps identify it.">{{ form.get('description', '') }}</textarea>
+        <span class="hint">Tip for found items: leave out one detail so the real owner can prove it's theirs.</span>
+      </div>
+      <div class="row">
+        <div class="field">
+          <label for="place">Where <span class="muted">(optional)</span></label>
+          <input class="input" id="place" name="place" maxlength="160" placeholder="Near Dolores Park" value="{{ form.get('place', '') }}">
+        </div>
+        <div class="field">
+          <label for="zip">ZIP code</label>
+          <input class="input" id="zip" name="zip" required maxlength="10" inputmode="numeric" value="{{ form.get('zip', '') }}">
+        </div>
+      </div>
+      <div class="row">
+        <div class="field">
+          <label for="seen_on">Date <span class="muted">(optional)</span></label>
+          <input class="input" id="seen_on" name="seen_on" type="date" value="{{ form.get('seen_on', '') }}">
+        </div>
+        <div class="field">
+          <label for="image">Photo <span class="muted">(optional)</span></label>
+          <input class="file-drop" id="image" name="image" type="file" accept="image/*">
+        </div>
+      </div>
+      <button class="btn btn-primary btn-lg btn-block" type="submit">Post and notify neighbors</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

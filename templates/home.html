@@ -6,10 +6,10 @@
     <div>
       <span class="eyebrow">Community safety, made simple</span>
       <h1>See what's happening on your block.</h1>
-      <p class="lead">Report safety issues in seconds, follow what neighbors are seeing, and get an email when something comes up in your ZIP code.</p>
+      <p class="lead">Report safety issues, reunite lost items with their owners, and get alerts by WhatsApp, SMS or email when something happens in your ZIP code.</p>
       <div class="hero-actions">
         <a class="btn btn-primary btn-lg" href="{{ url_for('new_report_page') }}">Report an issue</a>
-        <a class="btn btn-ghost btn-lg" href="{{ url_for('reports_page') }}">Browse reports</a>
+        <a class="btn btn-ghost btn-lg" href="{{ url_for('lost_found_page') }}">Lost &amp; Found</a>
       </div>
       {% if not current_user %}
       <p class="muted small" style="margin-top:18px">
@@ -22,11 +22,55 @@
 </section>
 
 <div class="container">
-  <div class="stats">
+  <div class="stats four">
     <div class="card stat"><div class="num">{{ total }}</div><div class="label">Reports filed</div></div>
-    <div class="card stat"><div class="num" style="color:var(--open)">{{ open_count }}</div><div class="label">Still open</div></div>
-    <div class="card stat"><div class="num" style="color:var(--ok)">{{ resolved }}</div><div class="label">Resolved</div></div>
+    <div class="card stat"><div class="num" style="color:var(--ok)">{{ resolved }}</div><div class="label">Issues resolved</div></div>
+    <div class="card stat"><div class="num" style="color:var(--accent)">{{ reunited }}</div><div class="label">Items reunited</div></div>
+    <div class="card stat"><div class="num">{{ members }}</div><div class="label">Neighbors signed up</div></div>
   </div>
+
+  <section class="section">
+    <div class="section-head">
+      <div>
+        <h2>Everything your neighborhood needs</h2>
+        <p class="muted" style="margin:0">One place to look out for each other.</p>
+      </div>
+    </div>
+    <div class="features">
+      <div class="card feature">
+        <div class="feature-icon" style="background:var(--open-soft);color:var(--open)">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+        </div>
+        <h3>Incident reports</h3>
+        <p>Pin hazards, break-ins and broken streetlights on a live map, with photos.</p>
+        <a href="{{ url_for('reports_page') }}">Browse reports →</a>
+      </div>
+      <div class="card feature">
+        <div class="feature-icon" style="background:var(--accent-soft);color:var(--accent)">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+        </div>
+        <h3>Lost &amp; Found</h3>
+        <p>Post a lost pet or wallet. When someone finds a match nearby, you hear about it right away.</p>
+        <a href="{{ url_for('lost_found_page') }}">Open Lost &amp; Found →</a>
+      </div>
+      <div class="card feature">
+        <div class="feature-icon" style="background:var(--ok-soft);color:var(--ok)">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        </div>
+        <h3>WhatsApp &amp; SMS alerts</h3>
+        <p>Choose email, text message, WhatsApp, or all three. Alerts only cover your own ZIP code.</p>
+        <a href="{{ url_for('account_page' if current_user else 'signup_page') }}">Set up alerts →</a>
+      </div>
+      <div class="card feature">
+        <div class="feature-icon" style="background:#fef3c7;color:#b45309">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg>
+        </div>
+        <h3>Important updates</h3>
+        <p>Road closures, outages and safety notices from the Watch team, sent straight to you.</p>
+        <a href="{{ url_for('updates_page') }}">See updates →</a>
+      </div>
+    </div>
+  </section>
 
   <section class="section">
     <div class="section-head"><h2>How it works</h2></div>
@@ -34,45 +78,129 @@
       <div class="card step">
         <div class="step-num">1</div>
         <h3>Spot something</h3>
-        <p>A broken streetlight, a hazard, something that doesn't look right.</p>
+        <p>A hazard, a break-in, or a set of keys on the sidewalk.</p>
       </div>
       <div class="card step">
         <div class="step-num">2</div>
-        <h3>Drop a pin</h3>
-        <p>Describe it, add a photo, and mark the exact spot on the map.</p>
+        <h3>Post it in seconds</h3>
+        <p>Describe it, add a photo, and drop a pin or a ZIP code.</p>
       </div>
       <div class="card step">
         <div class="step-num">3</div>
         <h3>Neighbors get notified</h3>
-        <p>Everyone signed up in that ZIP gets an email alert right away.</p>
+        <p>Everyone nearby is alerted the way they prefer, and owners hear about matches right away.</p>
       </div>
     </div>
   </section>
 
   <section class="section">
-    <div class="section-head">
-      <h2>Latest reports</h2>
-      <a href="{{ url_for('reports_page') }}">View all →</a>
-    </div>
-    {% if recent %}
-    <div class="report-grid">
-      {% for r in recent %}
-      <div class="report-card">
-        <div class="body">
-          <div class="report-top">
-            <h3>{{ r.type }}</h3>
-            {% if r.resolved %}<span class="badge badge-ok">Resolved</span>{% else %}<span class="badge badge-open">Open</span>{% endif %}
-          </div>
-          <p class="desc">{{ r.description|truncate(110) }}</p>
-          <div class="meta"><span>ZIP {{ r.zip }}</span></div>
-        </div>
+    <div class="alerts-band">
+      <div>
+        <h2>Alerts where you already are</h2>
+        <p>No app to install. We send alerts to the channels you already check.</p>
+        <ul>
+          <li>Safety reports in your ZIP code</li>
+          <li>"Someone found a pet near you" when it matches your lost post</li>
+          <li>A direct message when someone finds your item, with their contact details</li>
+          <li>Urgent community updates from the Watch team</li>
+        </ul>
+        <a class="btn btn-primary btn-lg" href="{{ url_for('account_page' if current_user else 'signup_page') }}">
+          {{ 'Manage my alerts' if current_user else 'Get alerts for my ZIP' }}
+        </a>
       </div>
-      {% endfor %}
+      <div class="phone" aria-hidden="true">
+        <div class="msg"><div class="msg-head"><span class="ch" style="--c:#22c55e">WhatsApp</span><span>now</span></div>
+          <strong>Someone found a pet near you</strong><br>Dana found a grey tabby cat near Dolores Park (ZIP 94110). Could it be yours?</div>
+        <div class="msg"><div class="msg-head"><span class="ch" style="--c:#3b82f6">SMS</span><span>2m</span></div>
+          <strong>Alert: Broken streetlight in your area</strong><br>Reported on 18th &amp; Valencia.</div>
+        <div class="msg"><div class="msg-head"><span class="ch" style="--c:#f59e0b">Email</span><span>1h</span></div>
+          <strong>Update: Water main repair</strong><br>Valencia St closed 9am–3pm on Saturday.</div>
+      </div>
     </div>
-    {% else %}
-    <div class="empty">No reports yet. <a href="{{ url_for('new_report_page') }}">Be the first to file one.</a></div>
-    {% endif %}
   </section>
+
+  <section class="section">
+    <div class="split">
+      <div>
+        <div class="section-head" style="margin-bottom:12px">
+          <h2>Latest reports</h2>
+          <a href="{{ url_for('reports_page') }}">View all →</a>
+        </div>
+        {% if recent %}
+        <div class="mini-list">
+          {% for r in recent %}
+          <a class="card mini" href="{{ url_for('reports_page') }}" style="box-shadow:none">
+            <div class="grow">
+              <div class="t">{{ r.type }}</div>
+              <div class="s">{{ r.description|truncate(70) }} · ZIP {{ r.zip }}</div>
+            </div>
+            {% if r.resolved %}<span class="badge badge-ok">Resolved</span>{% else %}<span class="badge badge-open">Open</span>{% endif %}
+          </a>
+          {% endfor %}
+        </div>
+        {% else %}
+        <div class="empty">No reports yet. <a href="{{ url_for('new_report_page') }}">Be the first.</a></div>
+        {% endif %}
+      </div>
+      <div>
+        <div class="section-head" style="margin-bottom:12px">
+          <h2>Lost &amp; found</h2>
+          <a href="{{ url_for('lost_found_page') }}">View all →</a>
+        </div>
+        {% if items %}
+        <div class="mini-list">
+          {% for it in items %}
+          <a class="card mini" href="{{ url_for('lost_found_detail', id=it.id) }}" style="box-shadow:none">
+            <div class="grow">
+              <div class="t">{{ it.title }}</div>
+              <div class="s">{{ it.category }} · ZIP {{ it.zip }} · {{ it.created_at|ago }}</div>
+            </div>
+            {% if it.kind == 'lost' %}<span class="badge badge-lost">Lost</span>{% else %}<span class="badge badge-found">Found</span>{% endif %}
+          </a>
+          {% endfor %}
+        </div>
+        {% else %}
+        <div class="empty">Nothing lost or found right now.</div>
+        {% endif %}
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="section-head"><h2>Questions</h2></div>
+    <div class="faq">
+      <details>
+        <summary>Is it free?</summary>
+        <p>Yes. Signing up, reporting and getting alerts are all free for neighbors.</p>
+      </details>
+      <details>
+        <summary>How do WhatsApp and SMS alerts work?</summary>
+        <p>Add your mobile number when you sign up (or later in your account) and tick SMS, WhatsApp or both. You'll only get alerts for your own ZIP code, and you can switch them off at any time.</p>
+      </details>
+      <details>
+        <summary>How does Lost &amp; Found matching work?</summary>
+        <p>When someone posts a found item, we alert everyone with an open lost post in the same ZIP and category. If you see your item, tap "This is mine" and the finder gets your contact details.</p>
+      </details>
+      <details>
+        <summary>Who can see my email and phone?</summary>
+        <p>Contact details on a safety report are shown with the report. For Lost &amp; Found, your details are only shared with the person you choose to respond to.</p>
+      </details>
+      <details>
+        <summary>Who posts the important updates?</summary>
+        <p>Verified Neighborhood Watch admins. Urgent updates also show as a banner across the site.</p>
+      </details>
+    </div>
+  </section>
+
+  {% if not current_user %}
+  <section class="section">
+    <div class="cta">
+      <h2>Look out for your neighbors</h2>
+      <p>Join in under a minute. All you need is your name, email and ZIP code.</p>
+      <a class="btn btn-ghost btn-lg" href="{{ url_for('signup_page') }}">Create your free account</a>
+    </div>
+  </section>
+  {% endif %}
 </div>
 {% endblock %}
 

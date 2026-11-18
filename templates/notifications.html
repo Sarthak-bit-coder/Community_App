@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Notifications{% endblock %}
+{% block content %}
+{% set icons = {'report': '🚨', 'lost': '🔍', 'found': '📦', 'match': '✨', 'contact': '💬', 'update': '📣'} %}
+<div class="container" style="max-width:760px;padding-bottom:48px">
+  <div class="page-head">
+    <div>
+      <h1>Notifications</h1>
+      <p class="muted">Everything we've sent you. <a href="{{ url_for('account_page') }}">Change where alerts go</a></p>
+    </div>
+  </div>
+
+  {% if items %}
+  <div class="card flush notif-list">
+    {% for n in items %}
+      {% set tag = 'a' if n.link else 'div' %}
+      <{{ tag }} class="notif {% if n.id in unread_ids %}unread{% endif %}" {% if n.link %}href="{{ n.link }}"{% endif %}>
+        <div class="notif-icon {{ n.kind }}">{{ icons.get(n.kind, '🔔') }}</div>
+        <div class="grow">
+          <h3>{{ n.title }}</h3>
+          {% if n.body %}<p>{{ n.body }}</p>{% endif %}
+          <time>{{ n.created_at|ago }}</time>
+        </div>
+        {% if n.id in unread_ids %}<span class="new-dot" title="New"></span>{% endif %}
+      </{{ tag }}>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty">
+    No notifications yet. You'll be alerted about reports, lost &amp; found posts and updates in ZIP {{ current_user.zip }}.
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

@@ -42,7 +42,71 @@
     <div class="card stat"><div class="num" id="sTotal">–</div><div class="label">Total reports</div></div>
     <div class="card stat"><div class="num" id="sOpen" style="color:var(--open)">–</div><div class="label">Open</div></div>
     <div class="card stat"><div class="num" id="sResolved" style="color:var(--ok)">–</div><div class="label">Resolved</div></div>
-    <div class="card stat"><div class="num" id="sZips">–</div><div class="label">ZIP codes</div></div>
+    <div class="card stat"><div class="num">{{ members }}</div><div class="label">Members</div></div>
+  </div>
+
+  <div class="split" style="margin-bottom:24px;align-items:start">
+    <div class="card">
+      <h2 style="font-size:1.15rem">Post an important update</h2>
+      <p class="muted small">Shown on the Updates page and sent to members by email, SMS and WhatsApp, depending on what each member chose.</p>
+      <form method="POST" action="{{ url_for('admin_announce') }}">
+        <div class="field">
+          <label for="a-title">Title</label>
+          <input class="input" id="a-title" name="title" maxlength="160" required placeholder="Water main repair on Valencia St">
+        </div>
+        <div class="field">
+          <label for="a-body">Message</label>
+          <textarea class="textarea" id="a-body" name="body" required placeholder="What's happening, where, and what people should do."></textarea>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label>Priority</label>
+            <div class="choices two">
+              <label class="choice"><input type="radio" name="priority" value="normal" checked><span>Normal</span></label>
+              <label class="choice"><input type="radio" name="priority" value="urgent"><span>Urgent<small>Site-wide banner</small></span></label>
+            </div>
+          </div>
+          <div class="field">
+            <label for="a-zip">ZIP code <span class="muted">(optional)</span></label>
+            <input class="input" id="a-zip" name="zip" maxlength="10" inputmode="numeric" placeholder="All areas">
+          </div>
+        </div>
+        <button class="btn btn-primary" type="submit">Post and notify members</button>
+      </form>
+    </div>
+
+    <div class="card">
+      <h2 style="font-size:1.15rem">Delivery channels</h2>
+      <p class="muted small">Configured with environment variables on the server (see README).</p>
+      <div class="channel-status" style="margin-bottom:20px">
+        <span class="pill {{ 'on' if channels.email }}">Email {{ 'on' if channels.email else 'off' }}</span>
+        <span class="pill {{ 'on' if channels.sms }}">SMS {{ 'on' if channels.sms else 'off' }}</span>
+        <span class="pill {{ 'on' if channels.whatsapp }}">WhatsApp {{ 'on' if channels.whatsapp else 'off' }}</span>
+      </div>
+      <h3>Recent updates</h3>
+      {% if announcements %}
+      <div class="mini-list">
+        {% for a in announcements %}
+        <div class="card mini" style="box-shadow:none">
+          <div class="grow">
+            <div class="t">{{ a.title }}
+              {% if a.priority == 'urgent' %}<span class="badge badge-urgent">Urgent</span>{% endif %}
+              {% if not a.active %}<span class="badge badge-closed">Archived</span>{% endif %}
+            </div>
+            <div class="s">{{ a.created_at|ago }} · {{ a.author or '—' }} · {{ 'ZIP ' ~ a.zip if a.zip else 'All areas' }}</div>
+          </div>
+          {% if a.active %}
+          <form method="POST" action="{{ url_for('admin_archive', id=a.id) }}">
+            <button class="btn btn-ghost btn-sm" type="submit">Archive</button>
+          </form>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <p class="muted small">No updates posted yet.</p>
+      {% endif %}
+    </div>
   </div>
 
   <div class="card flush">
@@ -103,7 +167,6 @@
     document.getElementById('sTotal').textContent = all.length;
     document.getElementById('sOpen').textContent = open;
     document.getElementById('sResolved').textContent = all.length - open;
-    document.getElementById('sZips').textContent = new Set(all.map(r => r.zip)).size;
     render();
   }
 

@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}{{ item.title }}{% endblock %}
+{% block content %}
+<div class="container">
+  <div class="page-head">
+    <div>
+      <p class="small" style="margin-bottom:6px"><a href="{{ url_for('lost_found_page') }}">← Lost &amp; Found</a></p>
+      <h1>{{ item.title }}</h1>
+      <p class="muted">
+        {% if item.status == 'closed' %}<span class="badge badge-closed">Reunited</span>
+        {% elif item.kind == 'lost' %}<span class="badge badge-lost">Lost</span>
+        {% else %}<span class="badge badge-found">Found</span>{% endif %}
+        &nbsp;Posted by {{ item.user.first_name }} · {{ item.created_at|ago }}
+      </p>
+    </div>
+  </div>
+
+  <div class="detail-grid">
+    <div class="card">
+      <div class="detail-img">
+        {% if item.image_url %}<img src="{{ item.image_url }}" alt="{{ item.title }}">{% else %}
+        <span class="muted">No photo</span>{% endif %}
+      </div>
+      <h3>Description</h3>
+      <p style="white-space:pre-line;overflow-wrap:anywhere">{{ item.description }}</p>
+      <dl class="facts">
+        <dt>Category</dt><dd>{{ item.category }}</dd>
+        {% if item.place %}<dt>Where</dt><dd>{{ item.place }}</dd>{% endif %}
+        <dt>ZIP</dt><dd>{{ item.zip }}</dd>
+        {% if item.seen_on %}<dt>{{ 'Lost on' if item.kind == 'lost' else 'Found on' }}</dt><dd>{{ item.seen_on }}</dd>{% endif %}
+      </dl>
+    </div>
+
+    <div class="card">
+      {% if item.status == 'closed' %}
+        <h3>Reunited 🎉</h3>
+        <p class="muted" style="margin:0">This item has made it back to its owner.</p>
+      {% elif current_user and current_user.id == item.user_id %}
+        <h3>This is your post</h3>
+        <p class="muted">You'll be notified as soon as someone responds.</p>
+        <form method="POST" action="{{ url_for('lost_found_close', id=item.id) }}">
+          <button class="btn btn-ok btn-block" type="submit">
+            {{ 'I got it back' if item.kind == 'lost' else 'Returned to the owner' }}
+          </button>
+        </form>
+      {% elif current_user %}
+        <h3>{{ 'Found this?' if item.kind == 'lost' else 'Is this yours?' }}</h3>
+        <p class="muted small">We'll send your message plus your name, email{% if current_user.phone %} and phone{% endif %} to {{ item.user.first_name }}.</p>
+        <form method="POST" action="{{ url_for('lost_found_contact', id=item.id) }}">
+          <div class="field">
+            <label for="message">Message</label>
+            <textarea class="textarea" id="message" name="message" maxlength="1000" placeholder="{{ 'Where you found it and how to get it back…' if item.kind == 'lost' else 'Describe something only the owner would know…' }}"></textarea>
+          </div>
+          <button class="btn btn-primary btn-block" type="submit">
+            {{ 'I found this' if item.kind == 'lost' else 'This is mine' }}
+          </button>
+        </form>
+      {% else %}
+        <h3>{{ 'Found this?' if item.kind == 'lost' else 'Is this yours?' }}</h3>
+        <p class="muted">Log in to contact {{ item.user.first_name }}. They'll get your message right away.</p>
+        <a class="btn btn-primary btn-block" href="{{ url_for('login_page', next=request.path) }}">Log in to respond</a>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}
