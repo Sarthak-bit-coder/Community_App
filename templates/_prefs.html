@@ -1,0 +1,16 @@
+{% macro alert_prefs(phone, email_on, sms_on, whatsapp_on) %}
+<div class="field">
+  <label for="phone">Mobile number <span class="muted">(for SMS / WhatsApp)</span></label>
+  <input class="input" id="phone" name="phone" type="tel" placeholder="+1 415 555 0123" value="{{ phone or '' }}">
+  <span class="hint">Include your country code. US numbers can be 10 digits.</span>
+</div>
+<div class="field">
+  <label>Send me alerts by</label>
+  <div class="choices">
+    <label class="choice"><input type="checkbox" name="notify_email" {% if email_on %}checked{% endif %}><span>Email<small>Full details</small></span></label>
+    <label class="choice"><input type="checkbox" name="notify_sms" {% if sms_on %}checked{% endif %}><span>SMS<small>Text message</small></span></label>
+    <label class="choice"><input type="checkbox" name="notify_whatsapp" {% if whatsapp_on %}checked{% endif %}><span>WhatsApp<small>Chat message</small></span></label>
+  </div>
+  <span class="hint">You'll also see every alert under the bell icon in the app.</span>
+</div>
+{% endmacro %}

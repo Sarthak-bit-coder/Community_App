@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+{% block title %}Post to Lost & Found{% endblock %}
+{% block content %}
+<div class="container" style="max-width:720px;padding-bottom:48px">
+  <div class="page-head">
+    <div>
+      <h1>Post to Lost &amp; Found</h1>
+      <p class="muted">We'll alert neighbors in this ZIP, and match lost and found posts automatically.</p>
+    </div>
+  </div>
+
+  <div class="card">
+    {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+    <form method="POST" enctype="multipart/form-data">
+      <div class="field">
+        <label>What happened?</label>
+        <div class="choices two">
+          <label class="choice"><input type="radio" name="kind" value="lost" {% if form.get('kind') != 'found' %}checked{% endif %}><span>I lost something<small>Neighbors get asked to keep an eye out</small></span></label>
+          <label class="choice"><input type="radio" name="kind" value="found" {% if form.get('kind') == 'found' %}checked{% endif %}><span>I found something<small>Owners of matching lost items get alerted</small></span></label>
+        </div>
+      </div>
+      <div class="row">
+        <div class="field">
+          <label for="title">Item</label>
+          <input class="input" id="title" name="title" maxlength="120" placeholder="e.g. Black leather wallet" required value="{{ form.get('title', '') }}">
+        </div>
+        <div class="field">
+          <label for="category">Category</label>
+          <select class="select" id="category" name="category" required>
+            <option value="" disabled {% if not form.get('category') %}selected{% endif %}>Choose one</option>
+            {% for c in categories %}<option {% if form.get('category') == c %}selected{% endif %}>{{ c }}</option>{% endfor %}
+          </select>
+        </div>
+      </div>
+      <div class="field">
+        <label for="description">Description</label>
+        <textarea class="textarea" id="description" name="description" required placeholder="Colour, brand, markings, anything that helps identify it.">{{ form.get('description', '') }}</textarea>
+        <span class="hint">Tip for found items: leave out one detail so the real owner can prove it's theirs.</span>
+      </div>
+      <div class="row">
+        <div class="field">
+          <label for="place">Where <span class="muted">(optional)</span></label>
+          <input class="input" id="place" name="place" maxlength="160" placeholder="Near Dolores Park" value="{{ form.get('place', '') }}">
+        </div>
+        <div class="field">
+          <label for="zip">ZIP code</label>
+          <input class="input" id="zip" name="zip" required maxlength="10" inputmode="numeric" value="{{ form.get('zip', '') }}">
+        </div>
+      </div>
+      <div class="field">
+        <label>Pin the spot <span class="muted">(optional, but it helps a lot)</span></label>
+        <div class="pick-tools" style="margin-bottom:8px">
+          <button type="button" class="btn btn-ghost btn-sm" id="useLocation">Use my location</button>
+          <label class="small muted" for="radius_m">How sure are you?</label>
+          <select class="select" id="radius_m" name="radius_m" style="width:auto">
+            <option value="100" {% if form.get('radius_m') == '100' %}selected{% endif %}>Exact spot (100 m)</option>
+            <option value="300" {% if form.get('radius_m', '300') == '300' %}selected{% endif %}>Around here (300 m)</option>
+            <option value="1000" {% if form.get('radius_m') == '1000' %}selected{% endif %}>Somewhere nearby (1 km)</option>
+          </select>
+        </div>
+        <div id="pickMap" style="height:300px;border-radius:10px;border:1px solid var(--border)"></div>
+        <span class="hint">Click the map to drop a pin. The circle shows neighbors where to look.</span>
+        <input type="hidden" name="lat" id="lat" value="{{ form.get('lat', '') }}">
+        <input type="hidden" name="lng" id="lng" value="{{ form.get('lng', '') }}">
+      </div>
+      <div class="row">
+        <div class="field">
+          <label for="seen_on">Date <span class="muted">(optional)</span></label>
+          <input class="input" id="seen_on" name="seen_on" type="date" value="{{ form.get('seen_on', '') }}">
+        </div>
+        <div class="field">
+          <label for="image">Photo <span class="muted">(optional)</span></label>
+          <input class="file-drop" id="image" name="image" type="file" accept="image/*">
+        </div>
+      </div>
+      <button class="btn btn-primary btn-lg btn-block" type="submit">Post and notify neighbors</button>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const latEl = document.getElementById('lat'), lngEl = document.getElementById('lng');
+  const radiusEl = document.getElementById('radius_m');
+  const map = L.map('pickMap').setView([37.7749, -122.4194], 13);
+  baseTiles(map);
+  let marker = null, circle = null;
+
+  function kindColor() {
+    return document.querySelector('input[name="kind"]:checked').value === 'lost' ? '#e11d48' : '#2563eb';
+  }
+  function place(lat, lng, pan) {
+    latEl.value = lat; lngEl.value = lng;
+    if (!marker) {
+      marker = L.marker([lat, lng], { draggable: true }).addTo(map);
+      marker.on('dragend', e => { const p = e.target.getLatLng(); place(p.lat, p.lng); });
+    } else marker.setLatLng([lat, lng]);
+    if (circle) map.removeLayer(circle);
+    circle = L.circle([lat, lng], { radius: +radiusEl.value, color: kindColor(), fillOpacity: .1, dashArray: '6 6' }).addTo(map);
+    if (pan) map.fitBounds(circle.getBounds(), { maxZoom: 16 });
+  }
+  map.on('click', e => place(e.latlng.lat, e.latlng.lng));
+  radiusEl.addEventListener('change', () => marker && place(latEl.value, lngEl.value, true));
+  document.querySelectorAll('input[name="kind"]').forEach(r => r.addEventListener('change', () => marker && place(latEl.value, lngEl.value)));
+  document.getElementById('useLocation').addEventListener('click', () => NWMap.locateMe(map, (lat, lng) => place(lat, lng, true)));
+  if (latEl.value && lngEl.value) place(+latEl.value, +lngEl.value, true);
+
+  // Typing a full ZIP zooms the map to that area.
+  NWMap.bindZipInput(document.getElementById('zip'), map)();
+</script>
+{% endblock %}

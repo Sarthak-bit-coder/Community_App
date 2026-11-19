@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Updates{% endblock %}
+{% block content %}
+<div class="container" style="max-width:760px;padding-bottom:48px">
+  <div class="page-head">
+    <div>
+      <h1>Community updates</h1>
+      <p class="muted">Important announcements from the Neighborhood Watch team.
+        {% if not current_user %}<a href="{{ url_for('signup_page') }}">Sign up</a> to get these by email, SMS or WhatsApp.{% endif %}</p>
+    </div>
+  </div>
+
+  {% for a in items %}
+  <article class="card update {{ 'urgent' if a.priority == 'urgent' }}">
+    <div class="report-top">
+      <h2>{{ a.title }}</h2>
+      {% if a.priority == 'urgent' %}<span class="badge badge-urgent">Urgent</span>{% endif %}
+    </div>
+    <div class="muted small">{{ a.created_at|ago }}{% if a.author %} · {{ a.author }}{% endif %} · {{ 'ZIP ' ~ a.zip if a.zip else 'All areas' }}</div>
+    <p>{{ a.body }}</p>
+  </article>
+  {% else %}
+  <div class="empty">No updates right now. All quiet in the neighborhood.</div>
+  {% endfor %}
+</div>
+{% endblock %}

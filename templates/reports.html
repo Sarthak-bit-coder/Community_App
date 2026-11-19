@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% block title %}Live map{% endblock %}
+{% block content %}
+<div class="map-page">
+  <aside class="map-side">
+    <h1 style="font-size:1.5rem">Live neighborhood map</h1>
+    <p class="muted small">Reports from neighbors, local news and WhatsApp groups, plus lost &amp; found items. Click any marker for details.</p>
+    <div class="toolbar" style="margin:12px 0">
+      <div class="tabs" id="statusTabs">
+        <button class="tab active" data-status="open">Active</button>
+        <button class="tab" data-status="all">All</button>
+      </div>
+      <input class="input" id="zipFilter" placeholder="ZIP code" inputmode="numeric" maxlength="5" style="width:120px"
+             aria-label="ZIP code"
+             value="{{ request.args.get('zip') or (current_user.zip if current_user and current_user.zip else '') }}" />
+    </div>
+    <p class="muted small" id="count"></p>
+    <div class="report-list" id="list"></div>
+  </aside>
+  <div class="map-main"><div id="map"></div></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const listEl = document.getElementById('list');
+  const zipInput = document.getElementById('zipFilter');
+  let status = 'open', all = [], rendered = null, overlay = null;
+  const map = L.map('map', { zoomControl: false }).setView([37.7749, -122.4194], 12);
+  L.control.zoom({ position: 'bottomright' }).addTo(map);
+  baseTiles(map);
+
+  document.querySelectorAll('#statusTabs .tab').forEach(btn => btn.addEventListener('click', () => {
+    document.querySelectorAll('#statusTabs .tab').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    status = btn.dataset.status;
+    load();
+  }));
+  // Typing a full ZIP zooms to that area; the list shows that ZIP (or everything when empty).
+  const zipNow = () => { const z = zipInput.value.trim(); return /^\d{5}$/.test(z) ? z : ''; };
+  zipInput.addEventListener('input', () => { if (!zipInput.value.trim() || zipNow()) draw(!zipNow()); });
+  NWMap.bindZipInput(zipInput, map);
+
+  async function load(first) {
+    all = await (await fetch('/api/map' + (status === 'all' ? '?resolved=1' : ''))).json();
+    draw(true, first);
+  }
+
+  function draw(refit, first) {
+    const zip = zipNow();
+    const items = all.filter(f => !zip || f.zip === zip)
+      .sort((a, b) => (a.resolved - b.resolved) || ((b.created || '') > (a.created || '') ? 1 : -1));
+
+    if (rendered) Object.values(rendered.layers).forEach(l => map.removeLayer(l));
+    if (overlay) overlay.remove();
+    rendered = NWMap.render(map, items);
+    overlay = NWMap.addOverlay(map, rendered.layers, NWMap.counts(items));
+    // With a ZIP, the map stays zoomed on that area; otherwise fit to everything.
+    if (zip && first) NWMap.zoomToZip(map, zip);
+    else if (refit && !zip) rendered.fit();
+
+    document.getElementById('count').textContent = `${items.length} on the map`;
+    listEl.innerHTML = items.length ? '' : `<div class="empty">${zip ? 'Nothing reported in ' + zip + ' right now.' : 'Nothing here right now.'}</div>`;
+    items.forEach(f => {
+      const c = NWMap.cat(f.category);
+      const card = document.createElement('div');
+      card.className = 'report-card clickable';
+      card.id = 'card-' + f.id;
+      const src = { news: 'Local news', whatsapp: 'WhatsApp', community: '' }[f.source] || '';
+      card.innerHTML = `
+        ${NWMap.badge(f.category, 34)}
+        <div class="body">
+          <div class="report-top">
+            <h3>${esc(f.title)}</h3>
+            ${f.resolved ? '<span class="badge badge-ok">Resolved</span>'
+              : f.kind === 'lost' ? '<span class="badge badge-lost">Lost</span>'
+              : f.kind === 'found' ? '<span class="badge badge-found">Found</span>'
+              : '<span class="badge badge-open">Active</span>'}
+          </div>
+          <p class="desc">${esc(f.description).slice(0, 160)}</p>
+          <div class="meta"><span>ZIP ${esc(f.zip)}</span><span>${NWMap.ago(f.created)}</span>${src ? `<span class="src-tag">${src}</span>` : ''}</div>
+          ${f.kind === 'report' && !f.resolved ? `<div class="actions"><button class="btn btn-ok btn-sm" data-resolve="${f.reportId}">Mark resolved</button></div>` : ''}
+        </div>`;
+      card.addEventListener('click', e => {
+        if (e.target.closest('button, a')) return;
+        focusFeature(f.id);
+      });
+      listEl.appendChild(card);
+    });
+
+    if (first) {
+      const focus = new URLSearchParams(location.search).get('focus');
+      if (focus) setTimeout(() => focusFeature(focus), 300);
+    }
+  }
+
+  function focusFeature(id) {
+    const m = rendered && rendered.byId[id];
+    if (!m) return;
+    document.querySelectorAll('.report-card.selected').forEach(c => c.classList.remove('selected'));
+    const card = document.getElementById('card-' + id);
+    if (card) { card.classList.add('selected'); card.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }
+    map.setView(m.getLatLng(), 16);
+    m.openPopup();
+  }
+
+  listEl.addEventListener('click', async e => {
+    const id = e.target.dataset.resolve;
+    if (!id) return;
+    const res = await fetch(`/api/resolve/${id}`, { method: 'POST' });
+    if (res.ok) { toast('Marked as resolved'); load(); }
+    else toast(res.status === 403 ? 'Only the person who filed this (or an admin) can resolve it.' : 'Could not resolve this report.');
+  });
+
+  load(true);
+</script>
+{% endblock %}

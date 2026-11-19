@@ -1,0 +1,10 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+flask_session/
+flask_session_dir/
+instance/
+static/uploads/*
+!static/uploads/.gitkeep
+.idea/

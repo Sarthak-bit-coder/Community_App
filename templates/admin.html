@@ -1,0 +1,263 @@
+{% extends "base.html" %}
+{% block title %}Admin{% endblock %}
+{% block content %}
+{% if not admin %}
+<div class="auth-wrap">
+  <div class="auth-card">
+    <div class="card">
+      <div class="auth-head">
+        <div class="brand-mark" style="background:var(--text)">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+        </div>
+        <h2>Admin sign in</h2>
+        <p class="muted" style="margin:0">Use the 6-digit code from your authenticator app.</p>
+      </div>
+      <div id="loginMsg"></div>
+      <form id="adminLogin">
+        <div class="field">
+          <label for="username">Username</label>
+          <input class="input" id="username" name="username" required autofocus autocomplete="username">
+        </div>
+        <div class="field">
+          <label for="token">Authenticator code</label>
+          <input class="input" id="token" name="token" inputmode="numeric" maxlength="6" placeholder="123456" required
+                 autocomplete="one-time-code" style="letter-spacing:.3em;font-size:1.1rem">
+        </div>
+        <button class="btn btn-primary btn-block btn-lg" type="submit">Sign in</button>
+      </form>
+    </div>
+  </div>
+</div>
+{% else %}
+<div class="container" style="padding-bottom:48px">
+  <div class="page-head">
+    <div>
+      <h1>Admin dashboard</h1>
+      <p class="muted">Signed in as <strong>{{ admin }}</strong></p>
+    </div>
+    <button class="btn btn-ghost" id="logoutBtn">Sign out</button>
+  </div>
+
+  <div class="admin-stats">
+    <div class="card stat"><div class="num" id="sTotal">–</div><div class="label">Total reports</div></div>
+    <div class="card stat"><div class="num" id="sOpen" style="color:var(--open)">–</div><div class="label">Open</div></div>
+    <div class="card stat"><div class="num" id="sResolved" style="color:var(--ok)">–</div><div class="label">Resolved</div></div>
+    <div class="card stat"><div class="num">{{ members }}</div><div class="label">Members</div></div>
+  </div>
+
+  <div class="split" style="margin-bottom:24px;align-items:start">
+    <div class="card">
+      <h2 style="font-size:1.15rem">Post an important update</h2>
+      <p class="muted small">Shown on the Updates page and sent to members by email, SMS and WhatsApp, depending on what each member chose.</p>
+      <form method="POST" action="{{ url_for('admin_announce') }}">
+        <div class="field">
+          <label for="a-title">Title</label>
+          <input class="input" id="a-title" name="title" maxlength="160" required placeholder="Water main repair on Valencia St">
+        </div>
+        <div class="field">
+          <label for="a-body">Message</label>
+          <textarea class="textarea" id="a-body" name="body" required placeholder="What's happening, where, and what people should do."></textarea>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label>Priority</label>
+            <div class="choices two">
+              <label class="choice"><input type="radio" name="priority" value="normal" checked><span>Normal</span></label>
+              <label class="choice"><input type="radio" name="priority" value="urgent"><span>Urgent<small>Site-wide banner</small></span></label>
+            </div>
+          </div>
+          <div class="field">
+            <label for="a-zip">ZIP code <span class="muted">(optional)</span></label>
+            <input class="input" id="a-zip" name="zip" maxlength="10" inputmode="numeric" placeholder="All areas">
+          </div>
+        </div>
+        <button class="btn btn-primary" type="submit">Post and notify members</button>
+      </form>
+    </div>
+
+    <div class="card">
+      <h2 style="font-size:1.15rem">Delivery channels</h2>
+      <p class="muted small">Configured with environment variables on the server (see README).</p>
+      <div class="channel-status" style="margin-bottom:20px">
+        <span class="pill {{ 'on' if channels.email }}">Email {{ 'on' if channels.email else 'off' }}</span>
+        <span class="pill {{ 'on' if channels.sms }}">SMS {{ 'on' if channels.sms else 'off' }}</span>
+        <span class="pill {{ 'on' if channels.whatsapp }}">WhatsApp {{ 'on' if channels.whatsapp else 'off' }}</span>
+      </div>
+      <h3>Recent updates</h3>
+      {% if announcements %}
+      <div class="mini-list">
+        {% for a in announcements %}
+        <div class="card mini" style="box-shadow:none">
+          <div class="grow">
+            <div class="t">{{ a.title }}
+              {% if a.priority == 'urgent' %}<span class="badge badge-urgent">Urgent</span>{% endif %}
+              {% if not a.active %}<span class="badge badge-closed">Archived</span>{% endif %}
+            </div>
+            <div class="s">{{ a.created_at|ago }} · {{ a.author or '—' }} · {{ 'ZIP ' ~ a.zip if a.zip else 'All areas' }}</div>
+          </div>
+          {% if a.active %}
+          <form method="POST" action="{{ url_for('admin_archive', id=a.id) }}">
+            <button class="btn btn-ghost btn-sm" type="submit">Archive</button>
+          </form>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <p class="muted small">No updates posted yet.</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="split" style="margin-bottom:24px;align-items:start">
+    <div class="card">
+      <h2 style="font-size:1.15rem">WhatsApp AI</h2>
+      <p class="muted small">Neighbors forward group messages to your Twilio WhatsApp number. The AI ({{ ai_label }}) turns incidents and lost/found items into posts automatically.{% if ai_engine == 'keywords' %} For smarter free AI, install Ollama (see README).{% endif %}</p>
+      <div class="channel-status" style="margin-bottom:12px">
+        <span class="pill {{ 'on' if ai_engine != 'keywords' }}">AI: {{ ai_label }}</span>
+        <span class="pill {{ 'on' if channels.whatsapp }}">WhatsApp {{ 'connected' if channels.whatsapp else 'not set up' }}</span>
+      </div>
+      <p class="small" style="margin-bottom:6px"><strong>Twilio webhook URL</strong> (paste into "When a message comes in"):</p>
+      <input class="input small" readonly value="{{ webhook_url }}" onclick="this.select()" style="margin-bottom:16px">
+      <h3>Try it</h3>
+      <form method="POST" action="{{ url_for('admin_ai_test') }}">
+        <div class="field">
+          <textarea class="textarea" name="message" required style="min-height:90px" placeholder="e.g. Anyone seen a small brown dog with a red collar? Ran off near 24th & Mission this morning"></textarea>
+        </div>
+        <div class="pick-tools">
+          <input class="input" name="zip" placeholder="ZIP if not in message" inputmode="numeric" maxlength="10" style="width:190px">
+          <button class="btn btn-primary" type="submit">Run through AI</button>
+        </div>
+        <p class="hint small muted" style="margin-top:6px">This creates a real post, exactly as if it came in on WhatsApp.</p>
+      </form>
+    </div>
+
+    <div class="card">
+      <h2 style="font-size:1.15rem">Local news</h2>
+      <p class="muted small">Checked automatically for every member ZIP. Incidents become map reports and alert neighbors; when a follow-up story says it's over, the report is resolved and removed from the map.</p>
+      <div class="channel-status" style="margin-bottom:12px">
+        <span class="pill {{ 'on' if news_sources.google }}">Google News</span>
+        <span class="pill {{ 'on' if news_sources.rss }}">Outlet RSS {{ '' if news_sources.rss else '(none set)' }}</span>
+        <span class="pill {{ 'on' if news_sources.newsapi }}">NewsAPI {{ '' if news_sources.newsapi else '(no key)' }}</span>
+      </div>
+      <form method="POST" action="{{ url_for('admin_news_poll') }}" style="margin-bottom:16px">
+        <button class="btn btn-ghost" type="submit">Check news now</button>
+        <span class="muted small">&nbsp;{{ news_checked }} articles screened so far</span>
+      </form>
+      <h3>Recently picked up</h3>
+      {% if recent_news %}
+      <div class="mini-list">
+        {% for n in recent_news %}
+        <a class="card mini" href="{{ url_for('reports_page', focus='report-' ~ n.report_id) }}" style="box-shadow:none">
+          <div class="grow"><div class="t" style="font-size:.9rem">{{ n.title|truncate(80) }}</div>
+            <div class="s">{{ n.source }} · {{ n.created_at|ago }}</div></div>
+          <span class="badge {{ 'badge-ok' if n.outcome == 'resolution' else 'badge-open' }}">{{ 'Resolved' if n.outcome == 'resolution' else 'Incident' }}</span>
+        </a>
+        {% endfor %}
+      </div>
+      {% else %}<p class="muted small">Nothing yet.</p>{% endif %}
+    </div>
+  </div>
+
+  <div class="card flush">
+    <div class="card-head">
+      <div class="tabs" id="statusTabs">
+        <button class="tab active" data-status="all">All</button>
+        <button class="tab" data-status="open">Open</button>
+        <button class="tab" data-status="resolved">Resolved</button>
+      </div>
+      <input class="input" id="search" placeholder="Search type, ZIP, email…" style="max-width:260px">
+    </div>
+    <div class="table-wrap">
+      <table class="table">
+        <thead>
+          <tr><th>#</th><th>Type</th><th>Description</th><th>ZIP</th><th>Contact</th><th>Status</th><th></th></tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if not admin %}
+<script>
+  document.getElementById('adminLogin').addEventListener('submit', async e => {
+    e.preventDefault();
+    const data = Object.fromEntries(new FormData(e.target));
+    const res = await fetch('/admin/login', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data)
+    });
+    if (res.ok) location.reload();
+    else document.getElementById('loginMsg').innerHTML =
+      '<div class="alert alert-error">Wrong username or code. Codes refresh every 30 seconds.</div>';
+  });
+</script>
+{% else %}
+<script>
+  let all = [], status = 'all';
+  const rows = document.getElementById('rows');
+  const search = document.getElementById('search');
+
+  document.getElementById('logoutBtn').addEventListener('click', async () => {
+    await fetch('/admin/logout', { method: 'POST' });
+    location.reload();
+  });
+  document.querySelectorAll('#statusTabs .tab').forEach(b => b.addEventListener('click', () => {
+    document.querySelectorAll('#statusTabs .tab').forEach(x => x.classList.remove('active'));
+    b.classList.add('active'); status = b.dataset.status; render();
+  }));
+  search.addEventListener('input', render);
+
+  async function load() {
+    all = await (await fetch('/api/reports')).json();
+    const open = all.filter(r => !r.resolved).length;
+    document.getElementById('sTotal').textContent = all.length;
+    document.getElementById('sOpen').textContent = open;
+    document.getElementById('sResolved').textContent = all.length - open;
+    render();
+  }
+
+  function render() {
+    const q = search.value.trim().toLowerCase();
+    const items = all.filter(r =>
+      (status === 'all' || (status === 'open' ? !r.resolved : r.resolved)) &&
+      (!q || [r.type, r.zip, r.email, r.description].join(' ').toLowerCase().includes(q)));
+    if (!items.length) {
+      rows.innerHTML = `<tr><td colspan="7" class="muted" style="text-align:center;padding:32px">No reports.</td></tr>`;
+      return;
+    }
+    rows.innerHTML = items.map(r => `
+      <tr>
+        <td class="muted">${r.id}</td>
+        <td><strong>${esc(r.type)}</strong>${r.imageUrl ? ` · <a href="${esc(r.imageUrl)}" target="_blank" rel="noopener">photo</a>` : ''}</td>
+        <td class="desc-cell">${esc(r.description)}</td>
+        <td>${esc(r.zip)}</td>
+        <td class="small"><a href="mailto:${esc(r.email)}">${esc(r.email)}</a><br><span class="muted">${esc(r.phone)}</span></td>
+        <td><span class="badge ${r.resolved ? 'badge-ok' : 'badge-open'}">${r.resolved ? 'Resolved' : 'Open'}</span></td>
+        <td><div class="row-actions">
+          ${!r.resolved
+            ? `<button class="btn btn-ok btn-sm" data-act="resolve" data-id="${r.id}">Resolve</button>`
+            : `<button class="btn btn-danger btn-sm" data-act="delete" data-id="${r.id}">Delete</button>`}
+        </div></td>
+      </tr>`).join('');
+  }
+
+  rows.addEventListener('click', async e => {
+    const b = e.target.closest('button[data-act]');
+    if (!b) return;
+    const id = b.dataset.id;
+    if (b.dataset.act === 'delete' && !confirm('Delete this report permanently?')) return;
+    const res = b.dataset.act === 'resolve'
+      ? await fetch(`/api/resolve/${id}`, { method: 'POST' })
+      : await fetch(`/api/reports/${id}`, { method: 'DELETE' });
+    if (res.ok) { toast(b.dataset.act === 'resolve' ? 'Report resolved' : 'Report deleted'); load(); }
+    else { const err = await res.json().catch(() => ({})); toast(err.error || 'Action failed'); }
+  });
+
+  load();
+</script>
+{% endif %}
+{% endblock %}
