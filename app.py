@@ -312,7 +312,8 @@ def admin_page():
         .order_by(NewsArticle.created_at.desc()).limit(6).all()
     return render_template('admin.html', admin=session.get('admin'), announcements=announcements,
                            channels=notifications.channel_status(app), members=member_count(),
-                           ai_enabled=ai.ai_enabled(), news_sources=news.sources_status(),
+                           ai_engine=ai.engine(), ai_label=ai.ENGINE_LABELS[ai.engine()],
+                           news_sources=news.sources_status(),
                            recent_news=recent_news,
                            news_checked=NewsArticle.query.count(),
                            webhook_url=(os.environ.get('PUBLIC_BASE_URL') or request.host_url).rstrip('/') + '/webhooks/whatsapp')
@@ -715,6 +716,17 @@ def resolve_report(id):
 
 # ---------------------------------------------------------------- map overlay data
 
+@app.route('/api/zip/<zip_code>')
+def zip_lookup(zip_code):
+    """Center and bounds of a US ZIP so maps can zoom to it (cached, rate-limited lookups)."""
+    if not re.fullmatch(r"\d{5}", zip_code):
+        return jsonify({"error": "Enter a 5-digit ZIP code"}), 400
+    info = geo.zip_info(zip_code)
+    if not info:
+        return jsonify({"error": "ZIP code not found"}), 404
+    return jsonify(info)
+
+
 @app.route('/api/map')
 def map_data():
     """Everything with a location: reports (community, news, WhatsApp) and lost/found items."""
@@ -819,12 +831,28 @@ def whatsapp_webhook():
     media = None
     if int(request.form.get('NumMedia') or 0) and (request.form.get('MediaContentType0') or '').startswith('image/'):
         media = request.form.get('MediaUrl0')
+    base = (os.environ.get('PUBLIC_BASE_URL') or request.host_url).rstrip('/')
     if not body:
         reply = "Hi! Forward me messages from your neighborhood group and I'll turn incidents and lost/found items into posts."
+    elif ai.engine() == 'ollama':
+        # A local model can take longer than Twilio's 15-second limit: answer now, follow up when done.
+        user = user_by_phone(sender)
+
+        def work():
+            with app.app_context():
+                try:
+                    text, link, _ = process_message(body, db.session.get(User, user.id) if user else None, media_url=media)
+                except Exception as e:
+                    print(f"[whatsapp] processing failed: {e}", flush=True)
+                    text, link = "Sorry, something went wrong reading that message. Please try again.", None
+                notifications.dispatch(app, mail, [("whatsapp", notifications.normalize_phone(sender) or sender,
+                                                    "Neighborhood Watch", text + (f"\n{base}{link}" if link else ""))])
+        threading.Thread(target=work, daemon=True).start()
+        reply = "Got it, reading your message now. I'll reply in a moment."
     else:
         reply, link, _ = process_message(body, user_by_phone(sender), media_url=media)
         if link:
-            reply += f"\n{(os.environ.get('PUBLIC_BASE_URL') or request.host_url).rstrip('/')}{link}"
+            reply += f"\n{base}{link}"
     xml = f'<?xml version="1.0" encoding="UTF-8"?><Response><Message>{escape(reply)}</Message></Response>'
     return xml, 200, {"Content-Type": "application/xml"}
 
@@ -838,7 +866,8 @@ def admin_ai_test():
         flash("Paste a message to test.", "error")
         return redirect(url_for('admin_page'))
     reply, link, ex = process_message(text, default_zip=(request.form.get('zip') or '').strip() or None)
-    engine = "Claude" if ai.ai_enabled() else "keyword rules"
+    engine = ai.ENGINE_LABELS[ai.engine()]
+    reply = reply.split(" Sign up on the website")[0]   # that hint is for WhatsApp senders
     flash(f"[{engine}] Detected: {ex.action} / {ex.category}. {reply}", "success" if link else "info")
     return redirect(link or url_for('admin_page'))
 

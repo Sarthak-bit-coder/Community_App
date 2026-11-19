@@ -42,9 +42,11 @@ def zip_info(zip_code):
     info = None
     if res:
         addr = res[0].get("address", {})
+        bb = [float(x) for x in res[0].get("boundingbox", [])] or None   # [south, north, west, east]
         info = {"lat": float(res[0]["lat"]), "lng": float(res[0]["lon"]),
                 "city": addr.get("city") or addr.get("town") or addr.get("village") or addr.get("county") or "",
-                "state": addr.get("state", "")}
+                "state": addr.get("state", ""),
+                "bounds": [[bb[0], bb[2]], [bb[1], bb[3]]] if bb and len(bb) == 4 else None}
     _zip_cache[zip_code] = info
     return info
 

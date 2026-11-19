@@ -50,7 +50,7 @@
       <div class="field">
         <label>Pin the spot <span class="muted">(optional, but it helps a lot)</span></label>
         <div class="pick-tools" style="margin-bottom:8px">
-          <button type="button" class="btn btn-ghost btn-sm" id="useLocation">📍 Use my location</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="useLocation">Use my location</button>
           <label class="small muted" for="radius_m">How sure are you?</label>
           <select class="select" id="radius_m" name="radius_m" style="width:auto">
             <option value="100" {% if form.get('radius_m') == '100' %}selected{% endif %}>Exact spot (100 m)</option>
@@ -106,17 +106,7 @@
   document.getElementById('useLocation').addEventListener('click', () => NWMap.locateMe(map, (lat, lng) => place(lat, lng, true)));
   if (latEl.value && lngEl.value) place(+latEl.value, +lngEl.value, true);
 
-  // Center on the ZIP when it's known.
-  async function goToZip(zip) {
-    if (!/^\d{5}$/.test(zip) || marker) return;
-    try {
-      const r = await fetch(`https://nominatim.openstreetmap.org/search?postalcode=${zip}&format=json&countrycodes=us`);
-      const res = await r.json();
-      if (res.length) map.setView([+res[0].lat, +res[0].lon], 14);
-    } catch (e) {}
-  }
-  const zipEl = document.getElementById('zip');
-  zipEl.addEventListener('blur', () => goToZip(zipEl.value.trim()));
-  goToZip(zipEl.value.trim());
+  // Typing a full ZIP zooms the map to that area.
+  NWMap.bindZipInput(document.getElementById('zip'), map)();
 </script>
 {% endblock %}

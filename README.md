@@ -63,15 +63,28 @@ Members turn on SMS or WhatsApp in **Account** settings and add their mobile num
 | Google News RSS | Local news search | Free, no key | none needed |
 | Local outlet RSS feeds | News from your local paper or TV station | Free | Find the outlet's RSS link (often `/feed` or `/rss`) and add it to `NEWS_RSS_FEEDS` |
 | NewsAPI.org | Extra news coverage | Free developer plan: 100 requests/day, articles delayed 24 h, non-commercial use only. Paid plans for production. | <https://newsapi.org/register> |
-| Anthropic Claude (Haiku 5.5) | AI that reads WhatsApp messages and news | Pay-as-you-go, about $0.10 per million input tokens (roughly 1,000 messages per cent). Without a key, the app uses free keyword rules. | <https://console.anthropic.com/> |
+| Ollama (local AI) | Free AI that reads WhatsApp messages and news, running on your own PC | Free, no account. Needs about 2 GB of disk and RAM. | <https://ollama.com/download> |
+| Anthropic Claude (Haiku 5.5) | The most accurate AI option (optional) | Pay-as-you-go, about $0.10 per million input tokens (roughly 1,000 messages per cent) | <https://console.anthropic.com/> |
 | Twilio | SMS + WhatsApp alerts, WhatsApp bot | Free trial credit; WhatsApp sandbox is free for testing | <https://www.twilio.com/try-twilio> |
 | ngrok | Gives your local app a public URL so Twilio can reach it | Free plan | <https://ngrok.com/download> |
+
+## Free AI (no credits): Ollama
+
+The AI that reads WhatsApp messages and news can run **for free on your own computer** with [Ollama](https://ollama.com), which runs open-source models locally. There's no account, no API key and no per-message cost, and messages never leave your machine.
+
+1. Install Ollama: download it from <https://ollama.com/download>, or on Windows run `winget install Ollama.Ollama`.
+2. Download the model (about 2 GB, one time): `ollama pull qwen2.5:3b`
+3. Restart the app. With `AI_ENGINE=auto` (the default), it picks up Ollama automatically. The admin page shows **AI: Ollama (free, local)**.
+
+On a laptop without a graphics card, each message takes a few seconds. If your PC has 16 GB+ of RAM and you want better accuracy, try `OLLAMA_MODEL=qwen2.5:7b`.
+
+**How the app picks an engine** (`AI_ENGINE=auto`): Claude if `ANTHROPIC_API_KEY` is set, otherwise Ollama if it's running, otherwise the built-in keyword rules. The keyword rules are also free. They recognize incident types, lost/found items, intersections ("24th St & Mission") and landmarks ("near Dolores Park"), but they're less accurate than a real model. Set `AI_ENGINE=ollama` or `AI_ENGINE=keywords` to force one.
 
 ## Setting up the WhatsApp AI bot
 
 WhatsApp doesn't let bots read group chats, so neighbors **forward** (or send) messages to the bot's number instead.
 
-1. Set up Twilio WhatsApp (see above) and add `ANTHROPIC_API_KEY` to `.env` for the AI. It works without the key, but less accurately.
+1. Set up Twilio WhatsApp (see above). For the AI, install Ollama (free, see above) or add `ANTHROPIC_API_KEY`. It also works with neither, using keyword rules.
 2. Expose your app: `ngrok http 5000`, then set `PUBLIC_BASE_URL` to the https URL ngrok prints.
 3. In the Twilio console, open the WhatsApp sandbox settings. Set **When a message comes in** to `<PUBLIC_BASE_URL>/webhooks/whatsapp` (method POST). The admin dashboard shows this URL ready to copy.
 4. Save the bot's number as a contact and share it in your group: *"Forward anything important here."*
@@ -119,6 +132,7 @@ static/map.js        Map overlay: category markers, circles, popups, layer toggl
 authenticator.py     Generates admin TOTP QR codes
 templates/           Jinja templates (base.html is the shared layout)
 static/style.css     All styles
+static/img/          Photos (from Pexels, free to use under the Pexels license, resized to WebP)
 static/uploads/      Uploaded photos
 ```
 

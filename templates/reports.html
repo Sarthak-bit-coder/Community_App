@@ -10,8 +10,9 @@
         <button class="tab active" data-status="open">Active</button>
         <button class="tab" data-status="all">All</button>
       </div>
-      <input class="input" id="zipFilter" placeholder="ZIP" inputmode="numeric" style="width:100px"
-             value="{{ current_user.zip if current_user and current_user.zip else '' }}" />
+      <input class="input" id="zipFilter" placeholder="ZIP code" inputmode="numeric" maxlength="5" style="width:120px"
+             aria-label="ZIP code"
+             value="{{ request.args.get('zip') or (current_user.zip if current_user and current_user.zip else '') }}" />
     </div>
     <p class="muted small" id="count"></p>
     <div class="report-list" id="list"></div>
@@ -35,7 +36,10 @@
     status = btn.dataset.status;
     load();
   }));
-  zipInput.addEventListener('input', () => draw(false));
+  // Typing a full ZIP zooms to that area; the list shows that ZIP (or everything when empty).
+  const zipNow = () => { const z = zipInput.value.trim(); return /^\d{5}$/.test(z) ? z : ''; };
+  zipInput.addEventListener('input', () => { if (!zipInput.value.trim() || zipNow()) draw(!zipNow()); });
+  NWMap.bindZipInput(zipInput, map);
 
   async function load(first) {
     all = await (await fetch('/api/map' + (status === 'all' ? '?resolved=1' : ''))).json();
@@ -43,7 +47,7 @@
   }
 
   function draw(refit, first) {
-    const zip = zipInput.value.trim();
+    const zip = zipNow();
     const items = all.filter(f => !zip || f.zip === zip)
       .sort((a, b) => (a.resolved - b.resolved) || ((b.created || '') > (a.created || '') ? 1 : -1));
 
@@ -51,18 +55,20 @@
     if (overlay) overlay.remove();
     rendered = NWMap.render(map, items);
     overlay = NWMap.addOverlay(map, rendered.layers, NWMap.counts(items));
-    if (refit) rendered.fit();
+    // With a ZIP, the map stays zoomed on that area; otherwise fit to everything.
+    if (zip && first) NWMap.zoomToZip(map, zip);
+    else if (refit && !zip) rendered.fit();
 
     document.getElementById('count').textContent = `${items.length} on the map`;
-    listEl.innerHTML = items.length ? '' : '<div class="empty">Nothing here right now. All quiet!</div>';
+    listEl.innerHTML = items.length ? '' : `<div class="empty">${zip ? 'Nothing reported in ' + zip + ' right now.' : 'Nothing here right now.'}</div>`;
     items.forEach(f => {
       const c = NWMap.cat(f.category);
       const card = document.createElement('div');
       card.className = 'report-card clickable';
       card.id = 'card-' + f.id;
-      const src = { news: '📰 News', whatsapp: '💬 WhatsApp', community: '' }[f.source] || '';
+      const src = { news: 'Local news', whatsapp: 'WhatsApp', community: '' }[f.source] || '';
       card.innerHTML = `
-        <div style="font-size:1.6rem;line-height:1">${c.icon}</div>
+        ${NWMap.badge(f.category, 34)}
         <div class="body">
           <div class="report-top">
             <h3>${esc(f.title)}</h3>

@@ -111,10 +111,10 @@
 
   <div class="split" style="margin-bottom:24px;align-items:start">
     <div class="card">
-      <h2 style="font-size:1.15rem">🤖 WhatsApp AI</h2>
-      <p class="muted small">Neighbors forward group messages to your Twilio WhatsApp number. The AI ({{ 'Claude Haiku 5.5' if ai_enabled else 'keyword rules: add ANTHROPIC_API_KEY for real AI' }}) turns incidents and lost/found items into posts automatically.</p>
+      <h2 style="font-size:1.15rem">WhatsApp AI</h2>
+      <p class="muted small">Neighbors forward group messages to your Twilio WhatsApp number. The AI ({{ ai_label }}) turns incidents and lost/found items into posts automatically.{% if ai_engine == 'keywords' %} For smarter free AI, install Ollama (see README).{% endif %}</p>
       <div class="channel-status" style="margin-bottom:12px">
-        <span class="pill {{ 'on' if ai_enabled }}">AI {{ 'Claude' if ai_enabled else 'keywords only' }}</span>
+        <span class="pill {{ 'on' if ai_engine != 'keywords' }}">AI: {{ ai_label }}</span>
         <span class="pill {{ 'on' if channels.whatsapp }}">WhatsApp {{ 'connected' if channels.whatsapp else 'not set up' }}</span>
       </div>
       <p class="small" style="margin-bottom:6px"><strong>Twilio webhook URL</strong> (paste into "When a message comes in"):</p>
@@ -122,7 +122,7 @@
       <h3>Try it</h3>
       <form method="POST" action="{{ url_for('admin_ai_test') }}">
         <div class="field">
-          <textarea class="textarea" name="message" required style="min-height:90px" placeholder="e.g. Anyone seen a small brown dog with a red collar? Ran off near 24th & Mission this morning 😢"></textarea>
+          <textarea class="textarea" name="message" required style="min-height:90px" placeholder="e.g. Anyone seen a small brown dog with a red collar? Ran off near 24th & Mission this morning"></textarea>
         </div>
         <div class="pick-tools">
           <input class="input" name="zip" placeholder="ZIP if not in message" inputmode="numeric" maxlength="10" style="width:190px">
@@ -133,7 +133,7 @@
     </div>
 
     <div class="card">
-      <h2 style="font-size:1.15rem">📰 Local news</h2>
+      <h2 style="font-size:1.15rem">Local news</h2>
       <p class="muted small">Checked automatically for every member ZIP. Incidents become map reports and alert neighbors; when a follow-up story says it's over, the report is resolved and removed from the map.</p>
       <div class="channel-status" style="margin-bottom:12px">
         <span class="pill {{ 'on' if news_sources.google }}">Google News</span>

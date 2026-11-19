@@ -17,16 +17,16 @@
           <label for="type">What kind of issue?</label>
           <select class="select" id="type" name="type" required>
             <option value="" disabled selected>Choose a category</option>
-            <option value="car_crash">🚗 Car crash</option>
-            <option value="fire">🔥 Fire</option>
-            <option value="crime">🚨 Theft or break-in</option>
-            <option value="suspicious">👀 Suspicious activity</option>
-            <option value="road_closure">🚧 Road closure</option>
-            <option value="hazard">⚠️ Road or sidewalk hazard</option>
-            <option value="outage">💡 Broken streetlight / outage</option>
-            <option value="missing_person">🧍 Missing person</option>
-            <option value="noise">🔊 Noise</option>
-            <option value="other">📍 Other</option>
+            <option value="car_crash">Car crash</option>
+            <option value="fire">Fire</option>
+            <option value="crime">Theft or break-in</option>
+            <option value="suspicious">Suspicious activity</option>
+            <option value="road_closure">Road closure</option>
+            <option value="hazard">Road or sidewalk hazard</option>
+            <option value="outage">Broken streetlight / outage</option>
+            <option value="missing_person">Missing person</option>
+            <option value="noise">Noise</option>
+            <option value="other">Other</option>
           </select>
           <span class="hint">Lost or found something? <a href="{{ url_for('lost_found_new') }}">Use Lost &amp; Found</a> instead.</span>
         </div>
@@ -39,7 +39,7 @@
             <label for="zip">ZIP code</label>
             <input class="input" id="zip" name="zip" inputmode="numeric" maxlength="10" required
                    value="{{ current_user.zip if current_user else '' }}">
-            <span class="hint">We'll move the map to this ZIP.</span>
+            <span class="hint">The map zooms to your area as you type.</span>
           </div>
           <div class="field">
             <label for="phone">Phone</label>
@@ -67,7 +67,7 @@
           <p class="muted small" style="margin:0">Click the map or drag the pin to the exact spot.</p>
         </div>
         <div class="pick-tools">
-          <button type="button" class="btn btn-ghost btn-sm" id="useLocation">📍 Use my location</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="useLocation">Use my location</button>
           <span class="muted small">Your browser will ask for permission.</span>
         </div>
         <div id="map" class="pick-map" style="flex:1"></div>
@@ -98,22 +98,12 @@
   marker.on('dragend', e => setLatLng(e.target.getLatLng()));
   map.on('click', e => { marker.setLatLng(e.latlng); setLatLng(e.latlng); });
 
-  async function goToZip(zip) {
-    if (!/^\d{5}$/.test(zip)) return;
-    try {
-      const r = await fetch(`https://nominatim.openstreetmap.org/search?postalcode=${zip}&format=json&countrycodes=us`);
-      const results = await r.json();
-      if (results.length) {
-        const ll = { lat: parseFloat(results[0].lat), lng: parseFloat(results[0].lon) };
-        map.setView(ll, 15);
-        marker.setLatLng(ll);
-        setLatLng(ll);
-      }
-    } catch (e) {}
-  }
+  // Typing a full ZIP zooms the map there and moves the pin to the middle of the area.
   const zipEl = document.getElementById('zip');
-  zipEl.addEventListener('blur', () => goToZip(zipEl.value.trim()));
-  if (zipEl.value) goToZip(zipEl.value.trim());
+  NWMap.bindZipInput(zipEl, map, (zip, info) => {
+    marker.setLatLng([info.lat, info.lng]);
+    setLatLng({ lat: info.lat, lng: info.lng });
+  })();
 
   form.addEventListener('submit', async e => {
     e.preventDefault();
