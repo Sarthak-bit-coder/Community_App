@@ -343,6 +343,7 @@ def admin_page():
                            news_sources=news.sources_status(),
                            recent_news=recent_news,
                            news_checked=NewsArticle.query.count(),
+                           last_poll=LAST_POLL, poll_minutes=float(os.environ.get('NEWS_POLL_MINUTES', 30)),
                            webhook_url=(os.environ.get('PUBLIC_BASE_URL') or request.host_url).rstrip('/') + '/webhooks/whatsapp')
 
 
@@ -1169,8 +1170,10 @@ def poll_news():
             areas.setdefault((info["city"], info["state"]), []).append(z)
     stats = {"areas": len(areas), "articles": 0, "incidents": 0, "resolved": 0}
     for (city, state), area_zips in areas.items():
-        open_news = Report.query.filter(Report.zip.in_(area_zips), Report.source == 'news',
-                                        db.or_(Report.resolved.is_(False), Report.resolved.is_(None))).all()
+        # Every open report from the last week (neighbor, chat or news), so a news story can resolve any of them.
+        week_ago = datetime.utcnow() - timedelta(days=7)
+        open_news = Report.query.filter(Report.zip.in_(area_zips), Report.created_at >= week_ago,
+                                        db.or_(Report.resolved.is_(False), Report.resolved.is_(None)))             .order_by(Report.created_at.desc()).limit(40).all()
         for a in news.fetch_for_area(city, state)[:25]:
             if NewsArticle.query.filter_by(url=a["url"][:800]).first():
                 continue
@@ -1206,11 +1209,17 @@ def poll_news():
     return stats
 
 
+LAST_POLL = {"at": None, "stats": None, "error": None}
+
+
 def run_news_poll():
     with app.app_context():
         try:
-            print(f"[news] poll finished: {poll_news()}", flush=True)
+            stats = poll_news()
+            LAST_POLL.update(at=datetime.utcnow(), stats=stats, error=None)
+            print(f"[news] poll finished: {stats}", flush=True)
         except Exception as e:
+            LAST_POLL.update(at=datetime.utcnow(), error=str(e)[:200])
             print(f"[news] poll failed: {e}", flush=True)
 
 

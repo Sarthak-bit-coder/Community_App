@@ -146,6 +146,16 @@
         <button class="btn btn-ghost" type="submit">Check news now</button>
         <span class="muted small">&nbsp;{{ news_checked }} articles screened so far</span>
       </form>
+      <p class="small" style="margin:-6px 0 16px">
+        {% if poll_minutes <= 0 %}
+          Automatic checks are off (NEWS_POLL_MINUTES=0).
+        {% elif last_poll.at %}
+          Last checked {{ last_poll.at|ago }}{% if last_poll.error %}, but it failed: {{ last_poll.error }}{% else %}: {{ last_poll.stats.articles }} new articles, {{ last_poll.stats.incidents }} new incidents, {{ last_poll.stats.resolved }} resolved{% endif %}.
+          Checks again every {{ poll_minutes|int }} minutes.
+        {% else %}
+          Checks every {{ poll_minutes|int }} minutes. The first check runs about 30 seconds after the app starts.
+        {% endif %}
+      </p>
       <h3>Recently picked up</h3>
       {% if recent_news %}
       <div class="mini-list">
