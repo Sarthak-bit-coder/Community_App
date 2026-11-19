@@ -17,14 +17,18 @@
           <label for="type">What kind of issue?</label>
           <select class="select" id="type" name="type" required>
             <option value="" disabled selected>Choose a category</option>
-            <option>Suspicious activity</option>
-            <option>Theft or break-in</option>
-            <option>Vandalism</option>
-            <option>Road or sidewalk hazard</option>
-            <option>Broken streetlight</option>
-            <option>Noise</option>
-            <option>Other</option>
+            <option value="car_crash">🚗 Car crash</option>
+            <option value="fire">🔥 Fire</option>
+            <option value="crime">🚨 Theft or break-in</option>
+            <option value="suspicious">👀 Suspicious activity</option>
+            <option value="road_closure">🚧 Road closure</option>
+            <option value="hazard">⚠️ Road or sidewalk hazard</option>
+            <option value="outage">💡 Broken streetlight / outage</option>
+            <option value="missing_person">🧍 Missing person</option>
+            <option value="noise">🔊 Noise</option>
+            <option value="other">📍 Other</option>
           </select>
+          <span class="hint">Lost or found something? <a href="{{ url_for('lost_found_new') }}">Use Lost &amp; Found</a> instead.</span>
         </div>
         <div class="field">
           <label for="description">Description</label>
@@ -62,6 +66,10 @@
           <h3 style="margin:0">Where did it happen?</h3>
           <p class="muted small" style="margin:0">Click the map or drag the pin to the exact spot.</p>
         </div>
+        <div class="pick-tools">
+          <button type="button" class="btn btn-ghost btn-sm" id="useLocation">📍 Use my location</button>
+          <span class="muted small">Your browser will ask for permission.</span>
+        </div>
         <div id="map" class="pick-map" style="flex:1"></div>
       </div>
     </div>
@@ -78,6 +86,9 @@
   const map = L.map('map').setView([37.7749, -122.4194], 13);
   baseTiles(map);
   const marker = L.marker([37.7749, -122.4194], { draggable: true }).addTo(map);
+
+  document.getElementById('useLocation').addEventListener('click', () =>
+    NWMap.locateMe(map, (lat, lng) => { marker.setLatLng([lat, lng]); setLatLng({ lat, lng }); }));
 
   function setLatLng({ lat, lng }) {
     document.getElementById('lat').value = lat;

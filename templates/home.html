@@ -210,10 +210,8 @@
     const map = L.map('heroMap', { scrollWheelZoom: false }).setView([37.7749, -122.4194], 12);
     baseTiles(map);
     try {
-      const reports = (await (await fetch('/api/reports')).json()).filter(r => r.lat && r.lng);
-      reports.forEach(r => L.marker([r.lat, r.lng], { icon: pin(r.resolved) }).addTo(map)
-        .bindPopup(`<strong>${esc(r.type)}</strong><br>${esc(r.description)}`));
-      if (reports.length) map.fitBounds(reports.map(r => [r.lat, r.lng]), { padding: [40, 40], maxZoom: 13 });
+      const feats = await (await fetch('/api/map')).json();
+      NWMap.render(map, feats, { maxZoom: 13 }).fit();
     } catch (e) {}
   })();
 </script>

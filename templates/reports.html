@@ -1,110 +1,101 @@
 {% extends "base.html" %}
-{% block title %}Reports{% endblock %}
+{% block title %}Live map{% endblock %}
 {% block content %}
-<div class="container">
-  <div class="page-head">
-    <div>
-      <h1>Community reports</h1>
-      <p class="muted">Everything neighbors have reported. Click a report to find it on the map.</p>
-    </div>
-    <div class="toolbar">
+<div class="map-page">
+  <aside class="map-side">
+    <h1 style="font-size:1.5rem">Live neighborhood map</h1>
+    <p class="muted small">Reports from neighbors, local news and WhatsApp groups, plus lost &amp; found items. Click any marker for details.</p>
+    <div class="toolbar" style="margin:12px 0">
       <div class="tabs" id="statusTabs">
-        <button class="tab active" data-status="all">All</button>
-        <button class="tab" data-status="open">Open</button>
-        <button class="tab" data-status="resolved">Resolved</button>
+        <button class="tab active" data-status="open">Active</button>
+        <button class="tab" data-status="all">All</button>
       </div>
-      <input class="input" id="zipFilter" placeholder="Filter by ZIP" inputmode="numeric"
-             value="{{ current_user.zip if current_user else '' }}" />
+      <input class="input" id="zipFilter" placeholder="ZIP" inputmode="numeric" style="width:100px"
+             value="{{ current_user.zip if current_user and current_user.zip else '' }}" />
     </div>
-  </div>
-
-  <div class="reports-layout">
-    <div>
-      <p class="muted small" id="count" style="margin-bottom:12px"></p>
-      <div class="report-list" id="reports"></div>
-    </div>
-    <div id="map" class="reports-map"></div>
-  </div>
+    <p class="muted small" id="count"></p>
+    <div class="report-list" id="list"></div>
+  </aside>
+  <div class="map-main"><div id="map"></div></div>
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script>
-  const listEl = document.getElementById('reports');
-  const countEl = document.getElementById('count');
+  const listEl = document.getElementById('list');
   const zipInput = document.getElementById('zipFilter');
-  let status = 'all';
-  let all = [];
-  const markers = {};
-
-  const map = L.map('map').setView([37.7749, -122.4194], 12);
+  let status = 'open', all = [], rendered = null, overlay = null;
+  const map = L.map('map', { zoomControl: false }).setView([37.7749, -122.4194], 12);
+  L.control.zoom({ position: 'bottomright' }).addTo(map);
   baseTiles(map);
-  const layer = L.layerGroup().addTo(map);
 
   document.querySelectorAll('#statusTabs .tab').forEach(btn => btn.addEventListener('click', () => {
     document.querySelectorAll('#statusTabs .tab').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     status = btn.dataset.status;
-    render();
+    load();
   }));
-  zipInput.addEventListener('input', render);
+  zipInput.addEventListener('input', () => draw(false));
 
-  async function load() {
-    all = await (await fetch('/api/reports')).json();
-    render();
+  async function load(first) {
+    all = await (await fetch('/api/map' + (status === 'all' ? '?resolved=1' : ''))).json();
+    draw(true, first);
   }
 
-  function render() {
+  function draw(refit, first) {
     const zip = zipInput.value.trim();
-    const items = all.filter(r =>
-      (!zip || r.zip === zip) &&
-      (status === 'all' || (status === 'open' ? !r.resolved : r.resolved)));
+    const items = all.filter(f => !zip || f.zip === zip)
+      .sort((a, b) => (a.resolved - b.resolved) || ((b.created || '') > (a.created || '') ? 1 : -1));
 
-    countEl.textContent = `${items.length} report${items.length === 1 ? '' : 's'}`;
-    layer.clearLayers();
-    listEl.innerHTML = '';
+    if (rendered) Object.values(rendered.layers).forEach(l => map.removeLayer(l));
+    if (overlay) overlay.remove();
+    rendered = NWMap.render(map, items);
+    overlay = NWMap.addOverlay(map, rendered.layers, NWMap.counts(items));
+    if (refit) rendered.fit();
 
-    if (!items.length) {
-      listEl.innerHTML = `<div class="empty">No reports match these filters.</div>`;
-      return;
-    }
-
-    items.forEach(r => {
+    document.getElementById('count').textContent = `${items.length} on the map`;
+    listEl.innerHTML = items.length ? '' : '<div class="empty">Nothing here right now. All quiet!</div>';
+    items.forEach(f => {
+      const c = NWMap.cat(f.category);
       const card = document.createElement('div');
-      card.className = 'report-card' + (r.lat && r.lng ? ' clickable' : '');
+      card.className = 'report-card clickable';
+      card.id = 'card-' + f.id;
+      const src = { news: '📰 News', whatsapp: '💬 WhatsApp', community: '' }[f.source] || '';
       card.innerHTML = `
-        ${r.imageUrl ? `<img class="thumb" src="${esc(r.imageUrl)}" alt="">` : ''}
+        <div style="font-size:1.6rem;line-height:1">${c.icon}</div>
         <div class="body">
           <div class="report-top">
-            <h3>${esc(r.type)}</h3>
-            <span class="badge ${r.resolved ? 'badge-ok' : 'badge-open'}">${r.resolved ? 'Resolved' : 'Open'}</span>
+            <h3>${esc(f.title)}</h3>
+            ${f.resolved ? '<span class="badge badge-ok">Resolved</span>'
+              : f.kind === 'lost' ? '<span class="badge badge-lost">Lost</span>'
+              : f.kind === 'found' ? '<span class="badge badge-found">Found</span>'
+              : '<span class="badge badge-open">Active</span>'}
           </div>
-          <p class="desc">${esc(r.description)}</p>
-          <div class="meta">
-            <span>ZIP ${esc(r.zip)}</span>
-            <a href="mailto:${esc(r.email)}">${esc(r.email)}</a>
-            <a href="tel:${esc(r.phone)}">${esc(r.phone)}</a>
-          </div>
-          ${!r.resolved ? `<div class="actions"><button class="btn btn-ok btn-sm" data-resolve="${r.id}">Mark resolved</button></div>` : ''}
+          <p class="desc">${esc(f.description).slice(0, 160)}</p>
+          <div class="meta"><span>ZIP ${esc(f.zip)}</span><span>${NWMap.ago(f.created)}</span>${src ? `<span class="src-tag">${src}</span>` : ''}</div>
+          ${f.kind === 'report' && !f.resolved ? `<div class="actions"><button class="btn btn-ok btn-sm" data-resolve="${f.reportId}">Mark resolved</button></div>` : ''}
         </div>`;
+      card.addEventListener('click', e => {
+        if (e.target.closest('button, a')) return;
+        focusFeature(f.id);
+      });
       listEl.appendChild(card);
-
-      if (r.lat && r.lng) {
-        const m = L.marker([r.lat, r.lng], { icon: pin(r.resolved) }).addTo(layer)
-          .bindPopup(`<strong>${esc(r.type)}</strong><br>${esc(r.description)}`);
-        markers[r.id] = m;
-        card.addEventListener('click', e => {
-          if (e.target.closest('button, a')) return;
-          document.querySelectorAll('.report-card.selected').forEach(c => c.classList.remove('selected'));
-          card.classList.add('selected');
-          map.setView([r.lat, r.lng], 16);
-          m.openPopup();
-        });
-      }
     });
 
-    const pts = items.filter(r => r.lat && r.lng).map(r => [r.lat, r.lng]);
-    if (pts.length) map.fitBounds(pts, { padding: [40, 40], maxZoom: 14 });
+    if (first) {
+      const focus = new URLSearchParams(location.search).get('focus');
+      if (focus) setTimeout(() => focusFeature(focus), 300);
+    }
+  }
+
+  function focusFeature(id) {
+    const m = rendered && rendered.byId[id];
+    if (!m) return;
+    document.querySelectorAll('.report-card.selected').forEach(c => c.classList.remove('selected'));
+    const card = document.getElementById('card-' + id);
+    if (card) { card.classList.add('selected'); card.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }
+    map.setView(m.getLatLng(), 16);
+    m.openPopup();
   }
 
   listEl.addEventListener('click', async e => {
@@ -115,6 +106,6 @@
     else toast(res.status === 403 ? 'Only the person who filed this (or an admin) can resolve it.' : 'Could not resolve this report.');
   });
 
-  load();
+  load(true);
 </script>
 {% endblock %}

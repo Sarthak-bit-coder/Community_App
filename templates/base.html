@@ -36,7 +36,7 @@
         Neighborhood Watch
       </a>
       <div class="nav-links">
-        {{ navlink('reports_page', 'Reports') }}
+        {{ navlink('reports_page', 'Live map') }}
         {{ navlink('lost_found_page', 'Lost & Found') }}
         {{ navlink('updates_page', 'Updates') }}
         {% if is_admin %}{{ navlink('admin_page', 'Admin') }}{% endif %}
@@ -104,6 +104,9 @@
       setTimeout(() => map.invalidateSize(), 150);
       new ResizeObserver(() => map.invalidateSize()).observe(map.getContainer());
     }
+  </script>
+  <script src="{{ url_for('static', filename='map.js') }}"></script>
+  <script>
     function pin(resolved) {
       return L.divIcon({
         className: '',

@@ -109,6 +109,56 @@
     </div>
   </div>
 
+  <div class="split" style="margin-bottom:24px;align-items:start">
+    <div class="card">
+      <h2 style="font-size:1.15rem">🤖 WhatsApp AI</h2>
+      <p class="muted small">Neighbors forward group messages to your Twilio WhatsApp number. The AI ({{ 'Claude Haiku 5.5' if ai_enabled else 'keyword rules: add ANTHROPIC_API_KEY for real AI' }}) turns incidents and lost/found items into posts automatically.</p>
+      <div class="channel-status" style="margin-bottom:12px">
+        <span class="pill {{ 'on' if ai_enabled }}">AI {{ 'Claude' if ai_enabled else 'keywords only' }}</span>
+        <span class="pill {{ 'on' if channels.whatsapp }}">WhatsApp {{ 'connected' if channels.whatsapp else 'not set up' }}</span>
+      </div>
+      <p class="small" style="margin-bottom:6px"><strong>Twilio webhook URL</strong> (paste into "When a message comes in"):</p>
+      <input class="input small" readonly value="{{ webhook_url }}" onclick="this.select()" style="margin-bottom:16px">
+      <h3>Try it</h3>
+      <form method="POST" action="{{ url_for('admin_ai_test') }}">
+        <div class="field">
+          <textarea class="textarea" name="message" required style="min-height:90px" placeholder="e.g. Anyone seen a small brown dog with a red collar? Ran off near 24th & Mission this morning 😢"></textarea>
+        </div>
+        <div class="pick-tools">
+          <input class="input" name="zip" placeholder="ZIP if not in message" inputmode="numeric" maxlength="10" style="width:190px">
+          <button class="btn btn-primary" type="submit">Run through AI</button>
+        </div>
+        <p class="hint small muted" style="margin-top:6px">This creates a real post, exactly as if it came in on WhatsApp.</p>
+      </form>
+    </div>
+
+    <div class="card">
+      <h2 style="font-size:1.15rem">📰 Local news</h2>
+      <p class="muted small">Checked automatically for every member ZIP. Incidents become map reports and alert neighbors; when a follow-up story says it's over, the report is resolved and removed from the map.</p>
+      <div class="channel-status" style="margin-bottom:12px">
+        <span class="pill {{ 'on' if news_sources.google }}">Google News</span>
+        <span class="pill {{ 'on' if news_sources.rss }}">Outlet RSS {{ '' if news_sources.rss else '(none set)' }}</span>
+        <span class="pill {{ 'on' if news_sources.newsapi }}">NewsAPI {{ '' if news_sources.newsapi else '(no key)' }}</span>
+      </div>
+      <form method="POST" action="{{ url_for('admin_news_poll') }}" style="margin-bottom:16px">
+        <button class="btn btn-ghost" type="submit">Check news now</button>
+        <span class="muted small">&nbsp;{{ news_checked }} articles screened so far</span>
+      </form>
+      <h3>Recently picked up</h3>
+      {% if recent_news %}
+      <div class="mini-list">
+        {% for n in recent_news %}
+        <a class="card mini" href="{{ url_for('reports_page', focus='report-' ~ n.report_id) }}" style="box-shadow:none">
+          <div class="grow"><div class="t" style="font-size:.9rem">{{ n.title|truncate(80) }}</div>
+            <div class="s">{{ n.source }} · {{ n.created_at|ago }}</div></div>
+          <span class="badge {{ 'badge-ok' if n.outcome == 'resolution' else 'badge-open' }}">{{ 'Resolved' if n.outcome == 'resolution' else 'Incident' }}</span>
+        </a>
+        {% endfor %}
+      </div>
+      {% else %}<p class="muted small">Nothing yet.</p>{% endif %}
+    </div>
+  </div>
+
   <div class="card flush">
     <div class="card-head">
       <div class="tabs" id="statusTabs">

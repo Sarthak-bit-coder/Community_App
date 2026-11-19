@@ -1,8 +1,15 @@
 from datetime import datetime, timedelta
 from functools import wraps
+import base64
+import hashlib
+import hmac
 import os
 import re
+import threading
+import time
 import uuid
+
+from markupsafe import escape
 
 from flask import (Flask, render_template, request, jsonify, session, redirect,
                    current_app, url_for, flash, abort, has_request_context)
@@ -19,6 +26,9 @@ try:  # optional: load settings from a .env file if python-dotenv is installed
 except ImportError:
     pass
 
+import ai
+import geo
+import news
 import notifications
 
 app = Flask(__name__)
@@ -55,8 +65,15 @@ ADMINS = {
     "Anav": "ONSWG4TFOQYTEMY="
 }
 
-ITEM_CATEGORIES = ["Pet", "Keys", "Wallet / purse", "Phone", "Bag", "Bike / scooter",
-                   "Jewelry", "Documents / ID", "Clothing", "Other"]
+ITEM_CATEGORIES = ai.ITEM_CATEGORIES
+
+# Category key -> label shown on reports (keys match ai.CATEGORIES and static/map.js).
+CATEGORY_LABELS = {
+    "car_crash": "Car crash", "fire": "Fire", "crime": "Theft or break-in",
+    "suspicious": "Suspicious activity", "road_closure": "Road closure",
+    "hazard": "Road or sidewalk hazard", "outage": "Broken streetlight / outage",
+    "missing_person": "Missing person", "noise": "Noise", "other": "Other",
+}
 
 
 def allowed_file(filename):
@@ -85,6 +102,25 @@ class Report(db.Model):
     lat = db.Column(db.Float, nullable=True)
     lng = db.Column(db.Float, nullable=True)
     image_url = db.Column(db.String(300), nullable=True)
+    category = db.Column(db.String(30), nullable=True)        # key from CATEGORY_LABELS
+    source = db.Column(db.String(20), default='community')    # community | news | whatsapp
+    source_url = db.Column(db.String(500), nullable=True)
+    source_name = db.Column(db.String(120), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    resolved_at = db.Column(db.DateTime, nullable=True)
+    resolved_note = db.Column(db.String(300), nullable=True)
+
+
+class NewsArticle(db.Model):
+    """Every article we've looked at, so each one is only processed once."""
+    id = db.Column(db.Integer, primary_key=True)
+    url = db.Column(db.String(800), unique=True, nullable=False)
+    title = db.Column(db.String(300), nullable=False)
+    source = db.Column(db.String(120), nullable=True)
+    zip = db.Column(db.String(10), nullable=True)
+    outcome = db.Column(db.String(20), nullable=True)          # incident | resolution | ignored
+    report_id = db.Column(db.Integer, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 
 class User(db.Model):
@@ -115,6 +151,10 @@ class LostItem(db.Model):
     place = db.Column(db.String(160), nullable=True)          # "near Dolores Park"
     seen_on = db.Column(db.String(40), nullable=True)         # date it was lost/found
     image_url = db.Column(db.String(300), nullable=True)
+    lat = db.Column(db.Float, nullable=True)                  # last-seen / found spot
+    lng = db.Column(db.Float, nullable=True)
+    radius_m = db.Column(db.Integer, default=300)             # how sure the poster is about the spot
+    source = db.Column(db.String(20), default='community')    # community | whatsapp
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     status = db.Column(db.String(10), default='open')         # 'open' or 'closed'
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -146,16 +186,24 @@ class Announcement(db.Model):
 def ensure_schema():
     """Create tables and add columns introduced after the database was first made.
 
-    The project has no migrations, so new User columns are added with ALTER TABLE.
+    The project has no migrations, so new columns are added with ALTER TABLE.
     """
     db.create_all()
-    cols = {row[1] for row in db.session.execute(db.text("PRAGMA table_info(user)"))}
-    for name, ddl in [("phone", "VARCHAR(20)"),
-                      ("notify_email", "BOOLEAN DEFAULT 1"),
-                      ("notify_sms", "BOOLEAN DEFAULT 0"),
-                      ("notify_whatsapp", "BOOLEAN DEFAULT 0")]:
-        if name not in cols:
-            db.session.execute(db.text(f"ALTER TABLE user ADD COLUMN {name} {ddl}"))
+    added = {
+        "user": [("phone", "VARCHAR(20)"), ("notify_email", "BOOLEAN DEFAULT 1"),
+                 ("notify_sms", "BOOLEAN DEFAULT 0"), ("notify_whatsapp", "BOOLEAN DEFAULT 0")],
+        "report": [("category", "VARCHAR(30)"), ("source", "VARCHAR(20) DEFAULT 'community'"),
+                   ("source_url", "VARCHAR(500)"), ("source_name", "VARCHAR(120)"),
+                   ("created_at", "DATETIME"), ("resolved_at", "DATETIME"),
+                   ("resolved_note", "VARCHAR(300)")],
+        "lost_item": [("lat", "FLOAT"), ("lng", "FLOAT"), ("radius_m", "INTEGER DEFAULT 300"),
+                      ("source", "VARCHAR(20) DEFAULT 'community'")],
+    }
+    for table, columns in added.items():
+        existing = {row[1] for row in db.session.execute(db.text(f"PRAGMA table_info({table})"))}
+        for name, ddl in columns:
+            if name not in existing:
+                db.session.execute(db.text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
     db.session.commit()
 
 
@@ -168,7 +216,8 @@ with app.app_context():
 def notify(users, title, body, link=None, kind='info'):
     """Save an in-app notification for each user and send it on their chosen channels."""
     jobs = []
-    full_link = (request.host_url.rstrip("/") + link) if (link and has_request_context()) else None
+    base = request.host_url if has_request_context() else os.environ.get('PUBLIC_BASE_URL', '')
+    full_link = (base.rstrip("/") + link) if (link and base) else None
     for user in {u.id: u for u in users if u}.values():
         db.session.add(Notification(user_id=user.id, kind=kind, title=title, body=body, link=link))
         text = body + (f"\n\n{full_link}" if full_link else "")
@@ -239,7 +288,11 @@ def home():
     reunited = LostItem.query.filter_by(status='closed').count()
     return render_template('home.html', total=total, resolved=resolved,
                            open_count=total - resolved, recent=recent, items=items,
-                           reunited=reunited, members=User.query.count())
+                           reunited=reunited, members=member_count())
+
+
+def member_count():
+    return User.query.filter(User.email != BOT_EMAIL).count()
 
 
 @app.route('/reports')
@@ -255,8 +308,14 @@ def new_report_page():
 @app.route('/admin')
 def admin_page():
     announcements = Announcement.query.order_by(Announcement.created_at.desc()).limit(10).all()
+    recent_news = NewsArticle.query.filter(NewsArticle.outcome.in_(['incident', 'resolution'])) \
+        .order_by(NewsArticle.created_at.desc()).limit(6).all()
     return render_template('admin.html', admin=session.get('admin'), announcements=announcements,
-                           channels=notifications.channel_status(app), members=User.query.count())
+                           channels=notifications.channel_status(app), members=member_count(),
+                           ai_enabled=ai.ai_enabled(), news_sources=news.sources_status(),
+                           recent_news=recent_news,
+                           news_checked=NewsArticle.query.count(),
+                           webhook_url=(os.environ.get('PUBLIC_BASE_URL') or request.host_url).rstrip('/') + '/webhooks/whatsapp')
 
 
 # ---------------------------------------------------------------- auth & account
@@ -393,12 +452,58 @@ def lost_found_page():
                            show_closed=show_closed)
 
 
+def to_float(v):
+    try:
+        return float(v) if v not in (None, '') else None
+    except ValueError:
+        return None
+
+
+def create_lost_item(user, kind, title, category, description, zip_code, place=None, seen_on=None,
+                     image_url=None, lat=None, lng=None, radius_m=300, source='community'):
+    """Save a lost/found post and send the matching alerts. Shared by the form, WhatsApp and admin tester."""
+    if lat is None or lng is None:
+        lat, lng = geo.locate(place or '', zip_code)
+    item = LostItem(kind=kind, title=title, category=category, description=description, zip=zip_code,
+                    place=place, seen_on=seen_on, image_url=image_url, lat=lat, lng=lng,
+                    radius_m=radius_m or 300, source=source, user_id=user.id)
+    db.session.add(item)
+    db.session.commit()
+    link = f"/lost-found/{item.id}"
+    where = f" near {place}" if place else ""
+    who = "A neighbor on WhatsApp" if user.email == BOT_EMAIL else user.first_name
+
+    if kind == 'lost':
+        # Ask neighbors to keep an eye out.
+        neighbors = User.query.filter(User.zip == zip_code, User.id != user.id).all()
+        notify(neighbors, f"Lost in your area: {title}",
+               f"{who} lost {title.lower()}{where} (ZIP {zip_code}). "
+               f"If you see it, tap 'I found this' on the post.", link=link, kind='lost')
+        # Tell the owner about found items that might already be theirs.
+        candidates = LostItem.query.filter_by(kind='found', status='open', zip=zip_code,
+                                              category=category).count()
+        if candidates:
+            notify([user], "Possible matches for your lost item",
+                   f"There {'is' if candidates == 1 else 'are'} {candidates} found "
+                   f"{category.lower()} item{'s' if candidates != 1 else ''} posted in ZIP {zip_code}. Take a look!",
+                   link=f"/lost-found?kind=found&zip={zip_code}", kind='match')
+    else:
+        # A found item: alert owners of matching lost items.
+        owners = [li.user for li in LostItem.query.filter(
+            LostItem.kind == 'lost', LostItem.status == 'open', LostItem.zip == zip_code,
+            LostItem.category == category, LostItem.user_id != user.id).all()]
+        notify(owners, f"Someone found a {category.lower()} near you",
+               f"{who} found {title.lower()}{where} (ZIP {zip_code}). Could it be yours?",
+               link=link, kind='found')
+    return item
+
+
 @app.route('/lost-found/new', methods=['GET', 'POST'])
 @login_required
 def lost_found_new():
     user = current_user()
     error = None
-    form = {"kind": request.args.get('kind', 'lost'), "zip": user.zip or ''}
+    form = {"kind": request.args.get('kind', 'lost'), "zip": user.zip or '', "radius_m": "300"}
     if request.method == 'POST':
         form = request.form
         kind = form.get('kind')
@@ -410,39 +515,15 @@ def lost_found_new():
                 or category not in ITEM_CATEGORIES:
             error = "Please fill in every required field."
         else:
-            item = LostItem(kind=kind, title=title, category=category, description=description,
-                            zip=zip_code, place=(form.get('place') or '').strip() or None,
-                            seen_on=form.get("seen_on") or None, image_url=save_upload(request.files.get('image')),
-                            user_id=user.id)
-            db.session.add(item)
-            db.session.commit()
-            link = url_for('lost_found_detail', id=item.id)
-            where = f" near {item.place}" if item.place else ""
-
-            if kind == 'lost':
-                # Ask neighbors to keep an eye out.
-                neighbors = User.query.filter(User.zip == zip_code, User.id != user.id).all()
-                notify(neighbors, f"Lost in your area: {title}",
-                       f"{user.first_name} lost {title.lower()}{where} (ZIP {zip_code}). "
-                       f"If you see it, tap 'I found this' on the post.", link=link, kind='lost')
-                # Tell the owner about found items that might already be theirs.
-                candidates = LostItem.query.filter_by(kind='found', status='open', zip=zip_code,
-                                                      category=category).count()
-                if candidates:
-                    notify([user], "Possible matches for your lost item",
-                           f"There {'is' if candidates == 1 else 'are'} {candidates} found "
-                           f"{category.lower()} item{'s' if candidates != 1 else ''} posted in ZIP {zip_code}. Take a look!",
-                           link=url_for('lost_found_page', kind='found', zip=zip_code), kind='match')
-            else:
-                # A found item: alert owners of matching lost items.
-                owners = [li.user for li in LostItem.query.filter(
-                    LostItem.kind == 'lost', LostItem.status == 'open', LostItem.zip == zip_code,
-                    LostItem.category == category, LostItem.user_id != user.id).all()]
-                notify(owners, f"Someone found a {category.lower()} near you",
-                       f"{user.first_name} found {title.lower()}{where} (ZIP {zip_code}). Could it be yours?",
-                       link=link, kind='found')
+            radius = int(form.get('radius_m') or 300)
+            item = create_lost_item(
+                user, kind, title, category, description, zip_code,
+                place=(form.get('place') or '').strip() or None, seen_on=form.get("seen_on") or None,
+                image_url=save_upload(request.files.get('image')),
+                lat=to_float(form.get('lat')), lng=to_float(form.get('lng')),
+                radius_m=radius if radius in (100, 300, 1000) else 300)
             flash("Your post is live. Neighbors have been notified.", "success")
-            return redirect(link)
+            return redirect(url_for('lost_found_detail', id=item.id))
     return render_template('lost_found_new.html', form=form, error=error, categories=ITEM_CATEGORIES)
 
 
@@ -537,6 +618,7 @@ def get_reports():
     return jsonify([{
         "id": r.id,
         "type": r.type,
+        "category": category_of(r),
         "description": r.description,
         "zip": r.zip,
         "email": r.email,
@@ -544,8 +626,57 @@ def get_reports():
         "resolved": r.resolved,
         "lat": r.lat,
         "lng": r.lng,
-        "imageUrl": r.image_url
+        "imageUrl": r.image_url,
+        "source": r.source or 'community',
+        "sourceUrl": r.source_url,
     } for r in reports])
+
+
+def category_of(report):
+    """Category key for a report; older reports only have a free-text type."""
+    if report.category:
+        return report.category
+    by_label = {v.lower(): k for k, v in CATEGORY_LABELS.items()}
+    return by_label.get((report.type or '').lower()) or ai._keyword_category(
+        f"{report.type} {report.description}") or 'other'
+
+
+def iso(dt):
+    return dt.isoformat() + 'Z' if dt else None
+
+
+def create_report(category, description, zip_code, lat=None, lng=None, title=None, source='community',
+                  source_url=None, source_name=None, email='', phone='', image_url=None,
+                  exclude_email=None, notify_zips=None):
+    """Save a report and alert members in its ZIP (or the given ZIPs)."""
+    category = category if category in CATEGORY_LABELS else 'other'
+    report = Report(type=(title or CATEGORY_LABELS[category])[:100], category=category,
+                    description=description, zip=zip_code, email=email or '', phone=phone or '',
+                    lat=lat, lng=lng, image_url=image_url, source=source, source_url=source_url,
+                    source_name=source_name, created_at=datetime.utcnow())
+    db.session.add(report)
+    db.session.commit()
+    q = User.query.filter(User.zip.in_(notify_zips or [zip_code]))
+    if exclude_email:
+        q = q.filter(db.func.lower(User.email) != exclude_email.lower())
+    label = {"news": "News alert", "whatsapp": "Neighbor alert"}.get(source, "Alert")
+    notify(q.all(), f"{label}: {report.type}",
+           f"{report.type} reported in ZIP {zip_code}:\n{description}"
+           + (f"\nSource: {source_name}" if source_name else ""),
+           link=f"/reports?focus=report-{report.id}", kind='news' if source == 'news' else 'report')
+    return report
+
+
+def resolve(report, note=None, announce=True):
+    """Mark a report resolved and, optionally, tell the neighbors it's over."""
+    report.resolved = True
+    report.resolved_at = datetime.utcnow()
+    report.resolved_note = (note or '')[:300] or None
+    db.session.commit()
+    if announce:
+        notify(User.query.filter_by(zip=report.zip).all(), f"Resolved: {report.type}",
+               note or f"{report.type} in ZIP {report.zip} has been resolved.",
+               link=f"/reports?focus=report-{report.id}", kind='resolved')
 
 
 @app.route('/api/reports', methods=['POST'])
@@ -562,24 +693,12 @@ def post_report():
         return jsonify({"error": "Invalid email"}), 400
 
     session['email'] = data['email']
-    report = Report(
-        type=data['type'],
-        description=data['description'],
-        zip=data['zip'],
-        email=data['email'],
-        phone=data['phone'],
-        lat=float(data['lat']) if data.get('lat') else None,
-        lng=float(data['lng']) if data.get('lng') else None,
-        image_url=save_upload(request.files.get('image'))
-    )
-    db.session.add(report)
-    db.session.commit()
-
-    neighbors = User.query.filter(User.zip == data['zip'],
-                                  db.func.lower(User.email) != data['email'].lower()).all()
-    notify(neighbors, f"Alert: {data['type']} in your area",
-           f"{data['type']} reported in ZIP {data['zip']}:\n{data['description']}",
-           link=url_for('reports_page'), kind='report')
+    category = data['type'] if data['type'] in CATEGORY_LABELS else 'other'
+    report = create_report(category, data['description'], data['zip'],
+                           lat=to_float(data.get('lat')), lng=to_float(data.get('lng')),
+                           email=data['email'], phone=data['phone'],
+                           image_url=save_upload(request.files.get('image')),
+                           exclude_email=data['email'])
     return jsonify({"message": "Report submitted", "id": report.id}), 201
 
 
@@ -588,11 +707,219 @@ def resolve_report(id):
     report = db.session.get(Report, id)
     if not report:
         return jsonify({"error": "Not found"}), 404
-    if session.get('admin') or session.get('email') == report.email:
-        report.resolved = True
-        db.session.commit()
+    if session.get('admin') or (report.email and session.get('email') == report.email):
+        resolve(report, f"{report.type} in ZIP {report.zip} was marked resolved.")
         return jsonify({"message": "Report resolved"}), 200
     return jsonify({"error": "Forbidden"}), 403
+
+
+# ---------------------------------------------------------------- map overlay data
+
+@app.route('/api/map')
+def map_data():
+    """Everything with a location: reports (community, news, WhatsApp) and lost/found items."""
+    show_resolved = request.args.get('resolved') == '1'
+    feats = []
+    rq = Report.query.filter(Report.lat.isnot(None))
+    if not show_resolved:
+        rq = rq.filter(db.or_(Report.resolved.is_(False), Report.resolved.is_(None)))
+    for r in rq.all():
+        feats.append({"id": f"report-{r.id}", "reportId": r.id, "kind": "report",
+                      "category": category_of(r), "title": r.type, "description": r.description,
+                      "zip": r.zip, "lat": r.lat, "lng": r.lng, "image": r.image_url,
+                      "resolved": bool(r.resolved), "resolvedNote": r.resolved_note,
+                      "source": r.source or 'community', "sourceUrl": r.source_url,
+                      "sourceName": r.source_name, "created": iso(r.created_at)})
+    iq = LostItem.query.filter(LostItem.lat.isnot(None))
+    if not show_resolved:
+        iq = iq.filter_by(status='open')
+    for i in iq.all():
+        feats.append({"id": f"item-{i.id}", "kind": i.kind,
+                      "category": "lost_item" if i.kind == 'lost' else "found_item",
+                      "itemCategory": i.category, "title": i.title, "description": i.description,
+                      "zip": i.zip, "lat": i.lat, "lng": i.lng, "radius": i.radius_m or 300,
+                      "image": i.image_url, "place": i.place, "resolved": i.status == 'closed',
+                      "source": i.source or 'community', "url": f"/lost-found/{i.id}",
+                      "created": iso(i.created_at)})
+    return jsonify(feats)
+
+
+# ---------------------------------------------------------------- AI: WhatsApp messages -> posts
+
+BOT_EMAIL = "whatsapp-bot@neighborhood.local"
+
+
+def bot_user():
+    """Placeholder owner for lost/found posts sent in by people without an account."""
+    u = User.query.filter_by(email=BOT_EMAIL).first()
+    if not u:
+        # zip is NOT NULL in older databases; '' never matches a real ZIP, so the bot gets no area alerts.
+        u = User(name="WhatsApp Community", email=BOT_EMAIL, zip='', notify_email=False)
+        db.session.add(u)
+        db.session.commit()
+    return u
+
+
+def user_by_phone(raw):
+    phone = notifications.normalize_phone(raw)
+    if not phone:
+        return None
+    return next((u for u in User.query.filter(User.phone.isnot(None)).all()
+                 if notifications.normalize_phone(u.phone) == phone), None)
+
+
+def process_message(text, user=None, default_zip=None, media_url=None):
+    """Let the AI read one community message and create a report / lost / found post.
+
+    Returns (reply_text, link or None, extraction).
+    """
+    ex = ai.extract_message(text)
+    if ex.action == 'none':
+        return "Thanks! I didn't spot an incident or a lost/found item in that message, so nothing was posted.", None, ex
+    zip_code = ex.zip or (user.zip if user else None) or default_zip
+    if not zip_code:
+        return "Thanks! Please resend with your 5-digit ZIP code so I know where this is.", None, ex
+    lat, lng = geo.locate(ex.location, zip_code, seed=text)
+    if ex.action == 'report':
+        r = create_report(ex.category, ex.description, zip_code, lat, lng, title=ex.title,
+                          source='whatsapp', email=user.email if user else '',
+                          phone=user.phone if user else '', image_url=media_url,
+                          exclude_email=user.email if user else None)
+        return f"Thanks! I posted a report: \"{r.type}\" in ZIP {zip_code} and alerted neighbors.", \
+            f"/reports?focus=report-{r.id}", ex
+    owner = user or bot_user()
+    item = create_lost_item(owner, ex.action, ex.title, ex.item_category, ex.description, zip_code,
+                            place=ex.location or None, image_url=media_url, lat=lat, lng=lng,
+                            source='whatsapp')
+    reply = f"Thanks! I posted a {ex.action} item: \"{item.title}\" in ZIP {zip_code}."
+    if not user:
+        reply += " Sign up on the website with this phone number to get notified when someone responds."
+    return reply, f"/lost-found/{item.id}", ex
+
+
+def twilio_signature_ok():
+    """Verify the X-Twilio-Signature header (skipped when no auth token is configured)."""
+    token = os.environ.get('TWILIO_AUTH_TOKEN')
+    if not token:
+        return True
+    base = os.environ.get('PUBLIC_BASE_URL', '').rstrip('/')
+    url = (base + request.full_path.rstrip('?')) if base else request.url
+    payload = url + ''.join(k + v for k, v in sorted(request.form.items()))
+    expected = base64.b64encode(hmac.new(token.encode(), payload.encode(), hashlib.sha1).digest()).decode()
+    return hmac.compare_digest(expected, request.headers.get('X-Twilio-Signature', ''))
+
+
+@app.route('/webhooks/whatsapp', methods=['POST'])
+def whatsapp_webhook():
+    """Twilio calls this for every WhatsApp message sent to the bot number."""
+    if not twilio_signature_ok():
+        abort(403)
+    body = (request.form.get('Body') or '').strip()
+    sender = (request.form.get('From') or '').replace('whatsapp:', '')
+    media = None
+    if int(request.form.get('NumMedia') or 0) and (request.form.get('MediaContentType0') or '').startswith('image/'):
+        media = request.form.get('MediaUrl0')
+    if not body:
+        reply = "Hi! Forward me messages from your neighborhood group and I'll turn incidents and lost/found items into posts."
+    else:
+        reply, link, _ = process_message(body, user_by_phone(sender), media_url=media)
+        if link:
+            reply += f"\n{(os.environ.get('PUBLIC_BASE_URL') or request.host_url).rstrip('/')}{link}"
+    xml = f'<?xml version="1.0" encoding="UTF-8"?><Response><Message>{escape(reply)}</Message></Response>'
+    return xml, 200, {"Content-Type": "application/xml"}
+
+
+@app.route('/admin/ai-test', methods=['POST'])
+def admin_ai_test():
+    if not session.get('admin'):
+        abort(401)
+    text = (request.form.get('message') or '').strip()
+    if not text:
+        flash("Paste a message to test.", "error")
+        return redirect(url_for('admin_page'))
+    reply, link, ex = process_message(text, default_zip=(request.form.get('zip') or '').strip() or None)
+    engine = "Claude" if ai.ai_enabled() else "keyword rules"
+    flash(f"[{engine}] Detected: {ex.action} / {ex.category}. {reply}", "success" if link else "info")
+    return redirect(link or url_for('admin_page'))
+
+
+# ---------------------------------------------------------------- local news
+
+def poll_news():
+    """Fetch news for every member ZIP, create reports for incidents, resolve finished ones."""
+    zips = sorted({z for (z,) in db.session.query(User.zip).distinct() if z})
+    areas = {}
+    for z in zips:
+        info = geo.zip_info(z)
+        if info and info["city"]:
+            areas.setdefault((info["city"], info["state"]), []).append(z)
+    stats = {"areas": len(areas), "articles": 0, "incidents": 0, "resolved": 0}
+    for (city, state), area_zips in areas.items():
+        open_news = Report.query.filter(Report.zip.in_(area_zips), Report.source == 'news',
+                                        db.or_(Report.resolved.is_(False), Report.resolved.is_(None))).all()
+        for a in news.fetch_for_area(city, state)[:25]:
+            if NewsArticle.query.filter_by(url=a["url"][:800]).first():
+                continue
+            stats["articles"] += 1
+            c = ai.classify_news(a["title"], a["summary"], f"{city}, {state} (ZIPs {', '.join(area_zips)})",
+                                 [{"id": r.id, "title": r.type} for r in open_news], city=city)
+            art = NewsArticle(url=a["url"][:800], title=a["title"][:300], source=(a["source"] or "")[:120],
+                              zip=area_zips[0], outcome="ignored")
+            if c.relevant and c.kind == "incident" and c.duplicate_of_report_id:
+                art.outcome, art.report_id = "duplicate", c.duplicate_of_report_id   # same event, another outlet
+            elif c.relevant and c.kind == "incident":
+                lat, lng = geo.locate(c.location, area_zips[0], seed=a["url"])
+                r = create_report(c.category, c.summary, area_zips[0], lat, lng, title=c.title,
+                                  source='news', source_url=a["url"][:500], source_name=a["source"],
+                                  notify_zips=area_zips)
+                open_news.append(r)
+                art.outcome, art.report_id = "incident", r.id
+                stats["incidents"] += 1
+            elif c.kind == "resolution" and c.resolves_report_id:
+                r = db.session.get(Report, c.resolves_report_id)
+                if r and not r.resolved:
+                    resolve(r, f"Resolved, per {a['source']}: {a['title']}")
+                    open_news = [o for o in open_news if o.id != r.id]
+                    art.outcome, art.report_id = "resolution", r.id
+                    stats["resolved"] += 1
+            db.session.add(art)
+            db.session.commit()
+    # News incidents nobody followed up on are cleared automatically.
+    cutoff = datetime.utcnow() - timedelta(hours=float(os.environ.get('NEWS_EXPIRE_HOURS', 48)))
+    for r in Report.query.filter(Report.source == 'news', Report.created_at < cutoff,
+                                 db.or_(Report.resolved.is_(False), Report.resolved.is_(None))).all():
+        resolve(r, "Cleared automatically: no news updates for 48 hours.", announce=False)
+    return stats
+
+
+def run_news_poll():
+    with app.app_context():
+        try:
+            print(f"[news] poll finished: {poll_news()}", flush=True)
+        except Exception as e:
+            print(f"[news] poll failed: {e}", flush=True)
+
+
+def start_news_poller():
+    minutes = float(os.environ.get('NEWS_POLL_MINUTES', 30))
+    if minutes <= 0:
+        return
+
+    def loop():
+        time.sleep(30)  # let the server finish starting
+        while True:
+            run_news_poll()
+            time.sleep(minutes * 60)
+    threading.Thread(target=loop, daemon=True).start()
+
+
+@app.route('/admin/news/poll', methods=['POST'])
+def admin_news_poll():
+    if not session.get('admin'):
+        abort(401)
+    threading.Thread(target=run_news_poll, daemon=True).start()
+    flash("Checking local news in the background. New incidents will appear on the map in a minute or two.", "success")
+    return redirect(url_for('admin_page'))
 
 
 @app.route('/api/reports/<int:id>', methods=['DELETE'])
@@ -646,4 +973,7 @@ def login():
 
 
 if __name__ == '__main__':
+    # With the debug reloader, only the child process (WERKZEUG_RUN_MAIN=true) serves requests.
+    if os.environ.get('WERKZEUG_RUN_MAIN') == 'true':
+        start_news_poller()
     app.run(debug=True)
