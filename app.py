@@ -18,6 +18,7 @@ from flask_session import Session
 from flask_sqlalchemy import SQLAlchemy
 from flask_mail import Mail
 from werkzeug.utils import secure_filename
+from werkzeug.middleware.proxy_fix import ProxyFix
 import pyotp
 
 try:  # optional: load settings from a .env file if python-dotenv is installed
@@ -51,6 +52,9 @@ UPLOAD_FOLDER = 'static/uploads'
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+
+# Behind ngrok (or another proxy) trust its X-Forwarded-Proto/Host so links use the public https address.
+app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 
 Session(app)
 CORS(app)
@@ -1002,7 +1006,10 @@ def login():
 
 
 if __name__ == '__main__':
+    # Set APP_DEBUG=0 when the app is reachable from the internet (e.g. through ngrok):
+    # debug mode shows code and an interactive console on error pages.
+    debug = os.environ.get('APP_DEBUG', '1') != '0'
     # With the debug reloader, only the child process (WERKZEUG_RUN_MAIN=true) serves requests.
-    if os.environ.get('WERKZEUG_RUN_MAIN') == 'true':
+    if not debug or os.environ.get('WERKZEUG_RUN_MAIN') == 'true':
         start_news_poller()
-    app.run(debug=True)
+    app.run(debug=debug)

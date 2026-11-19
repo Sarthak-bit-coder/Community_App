@@ -68,6 +68,18 @@ Members turn on SMS or WhatsApp in **Account** settings and add their mobile num
 | Twilio | SMS + WhatsApp alerts, WhatsApp bot | Free trial credit; WhatsApp sandbox is free for testing | <https://www.twilio.com/try-twilio> |
 | ngrok | Gives your local app a public URL so Twilio can reach it | Free plan | <https://ngrok.com/download> |
 
+## Putting the app online (ngrok)
+
+1. Install ngrok (`winget install Ngrok.Ngrok`) and connect your free account: `ngrok config add-authtoken <your token>` (get the token at <https://dashboard.ngrok.com/get-started/your-authtoken>).
+2. In `.env`, set `SITE_USER` / `SITE_PASSWORD` (the password visitors will type), `APP_DEBUG=0`, and `PUBLIC_BASE_URL` to your ngrok address.
+3. Start the app (`python app.py`), then in another terminal run:
+
+   ```
+   powershell -ExecutionPolicy Bypass -File .\go_online.ps1
+   ```
+
+The site asks for the username and password. `/webhooks/...` stays open so Twilio can deliver WhatsApp messages, and the app checks Twilio's signature there. Free ngrok accounts keep the same address across restarts. The site is only reachable while your PC, the app and ngrok are running. Press Ctrl+C in the ngrok window (or run `Stop-Process -Name ngrok`) to go offline.
+
 ## Free AI (no credits): Ollama
 
 The AI that reads WhatsApp messages and news can run **for free on your own computer** with [Ollama](https://ollama.com), which runs open-source models locally. There's no account, no API key and no per-message cost, and messages never leave your machine.
