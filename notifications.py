@@ -9,6 +9,7 @@ Environment variables:
   TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN
   TWILIO_SMS_FROM                     e.g. +15551234567 (a Twilio phone number)
   TWILIO_WHATSAPP_FROM                e.g. +14155238886 (Twilio WhatsApp sender / sandbox)
+  TELEGRAM_BOT_TOKEN                  free bot token from @BotFather
 """
 import os
 import re
@@ -16,6 +17,8 @@ import threading
 
 import requests
 from flask_mail import Message
+
+import telegram_bot
 
 def log(msg):
     print(msg, flush=True)
@@ -58,6 +61,7 @@ def channel_status(app):
         "email": email_configured(app),
         "sms": twilio_configured("sms"),
         "whatsapp": twilio_configured("whatsapp"),
+        "telegram": telegram_bot.configured(),
     }
 
 
@@ -89,6 +93,11 @@ def _send_one(app, mail, job):
             with app.app_context():
                 mail.send(Message(subject=subject, recipients=[to], body=body,
                                   sender=app.config.get("MAIL_DEFAULT_SENDER") or app.config["MAIL_USERNAME"]))
+        elif channel == "telegram":
+            if not telegram_bot.configured():
+                log(f"[notify:telegram:not-configured] to={to} body={body[:80]!r}")
+                return
+            telegram_bot.send_message(to, f"{subject}\n\n{body}")
         else:
             if not twilio_configured(channel):
                 log(f"[notify:{channel}:not-configured] to={to} body={body[:80]!r}")

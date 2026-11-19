@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import os
 import re
+import secrets
 import threading
 import time
 import uuid
@@ -18,8 +19,10 @@ from flask_session import Session
 from flask_sqlalchemy import SQLAlchemy
 from flask_mail import Mail
 from werkzeug.utils import secure_filename
+from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.middleware.proxy_fix import ProxyFix
 import pyotp
+import requests
 
 try:  # optional: load settings from a .env file if python-dotenv is installed
     from dotenv import load_dotenv
@@ -28,6 +31,7 @@ except ImportError:
     pass
 
 import ai
+import telegram_bot
 import geo
 import news
 import notifications
@@ -62,12 +66,8 @@ db = SQLAlchemy(app)
 
 EMAIL_REGEX = re.compile(r"[^@]+@[^@]+\.[^@]+")
 
-ADMINS = {
-    "Sarthak": "JBSWY3DPEHPK3PXP",
-    "Ayesha": "KZXW6YTBMFWWKZLU",
-    "Shubham": "MFRGGZDFMZTWQ2LK",
-    "Anav": "ONSWG4TFOQYTEMY="
-}
+# Admin TOTP secrets live in .env as ADMIN_TOTP_<Name>=<base32 secret> (see authenticator.py).
+ADMINS = {k[len('ADMIN_TOTP_'):].lower(): v for k, v in os.environ.items() if k.upper().startswith('ADMIN_TOTP_') and v}
 
 ITEM_CATEGORIES = ai.ITEM_CATEGORIES
 
@@ -136,10 +136,21 @@ class User(db.Model):
     notify_email = db.Column(db.Boolean, default=True)
     notify_sms = db.Column(db.Boolean, default=False)
     notify_whatsapp = db.Column(db.Boolean, default=False)
+    password_hash = db.Column(db.String(256), nullable=True)
+    google_sub = db.Column(db.String(64), nullable=True)
+    telegram_chat_id = db.Column(db.String(32), nullable=True)
+    telegram_link_code = db.Column(db.String(32), nullable=True)
+    notify_telegram = db.Column(db.Boolean, default=False)
 
     @property
     def first_name(self):
         return (self.name or '').split(' ')[0]
+
+    def set_password(self, password):
+        self.password_hash = generate_password_hash(password)
+
+    def check_password(self, password):
+        return bool(self.password_hash) and check_password_hash(self.password_hash, password or '')
 
     def __repr__(self):
         return f'<User {self.email}>'
@@ -187,6 +198,13 @@ class Announcement(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 
+class TelegramGroup(db.Model):
+    """A Telegram group the bot was added to, and the ZIP code its messages are about."""
+    chat_id = db.Column(db.String(32), primary_key=True)
+    title = db.Column(db.String(200))
+    zip = db.Column(db.String(10))
+
+
 def ensure_schema():
     """Create tables and add columns introduced after the database was first made.
 
@@ -195,7 +213,10 @@ def ensure_schema():
     db.create_all()
     added = {
         "user": [("phone", "VARCHAR(20)"), ("notify_email", "BOOLEAN DEFAULT 1"),
-                 ("notify_sms", "BOOLEAN DEFAULT 0"), ("notify_whatsapp", "BOOLEAN DEFAULT 0")],
+                 ("notify_sms", "BOOLEAN DEFAULT 0"), ("notify_whatsapp", "BOOLEAN DEFAULT 0"),
+                 ("password_hash", "VARCHAR(256)"), ("google_sub", "VARCHAR(64)"),
+                 ("telegram_chat_id", "VARCHAR(32)"), ("telegram_link_code", "VARCHAR(32)"),
+                 ("notify_telegram", "BOOLEAN DEFAULT 0")],
         "report": [("category", "VARCHAR(30)"), ("source", "VARCHAR(20) DEFAULT 'community'"),
                    ("source_url", "VARCHAR(500)"), ("source_name", "VARCHAR(120)"),
                    ("created_at", "DATETIME"), ("resolved_at", "DATETIME"),
@@ -232,6 +253,8 @@ def notify(users, title, body, link=None, kind='info'):
             jobs.append(("sms", phone, title, text))
         if phone and user.notify_whatsapp:
             jobs.append(("whatsapp", phone, title, text))
+        if user.telegram_chat_id and user.notify_telegram:
+            jobs.append(("telegram", user.telegram_chat_id, title, text))
     db.session.commit()
     notifications.dispatch(app, mail, jobs)
 
@@ -320,6 +343,7 @@ def admin_page():
                            news_sources=news.sources_status(),
                            recent_news=recent_news,
                            news_checked=NewsArticle.query.count(),
+                           last_poll=LAST_POLL, poll_minutes=float(os.environ.get('NEWS_POLL_MINUTES', 30)),
                            webhook_url=(os.environ.get('PUBLIC_BASE_URL') or request.host_url).rstrip('/') + '/webhooks/whatsapp')
 
 
@@ -330,17 +354,40 @@ def safe_next(default):
     return nxt if nxt and nxt.startswith('/') and not nxt.startswith('//') else default
 
 
+def log_in(user):
+    admin = session.get('admin')
+    session.clear()   # start a fresh session at login (prevents session fixation)
+    if admin:
+        session['admin'] = admin
+    session['user_email'] = user.email
+    session['email'] = user.email
+
+
+def google_configured():
+    return bool(os.environ.get('GOOGLE_CLIENT_ID') and os.environ.get('GOOGLE_CLIENT_SECRET'))
+
+
+@app.context_processor
+def inject_auth():
+    return {"google_enabled": google_configured()}
+
+
 @app.route('/login', methods=['GET', 'POST'])
 def login_page():
     error = None
     if request.method == 'POST':
         email = (request.form.get('email') or '').strip().lower()
+        password = request.form.get('password') or ''
         user = User.query.filter(db.func.lower(User.email) == email).first()
-        if user:
-            session['user_email'] = user.email
-            session['email'] = user.email
-            return redirect(safe_next(url_for('reports_page')))
-        error = "We couldn't find an account with that email."
+        if user and user.check_password(password):
+            nxt = safe_next(url_for('reports_page'))
+            log_in(user)
+            return redirect(nxt)
+        if user and not user.password_hash:
+            error = ("This account doesn't have a password yet. Sign in with Google using the same email, "
+                     "then add a password on your Account page.")
+        else:
+            error = "That email and password don't match."
     return render_template('login.html', error=error)
 
 
@@ -349,6 +396,17 @@ def logout():
     session.pop('user_email', None)
     session.pop('email', None)
     return redirect(url_for('home'))
+
+
+PASSWORD_MIN = 8
+
+
+def password_error(password, confirm):
+    if len(password) < PASSWORD_MIN:
+        return f"Use a password with at least {PASSWORD_MIN} characters."
+    if password != confirm:
+        return "The two passwords don't match."
+    return None
 
 
 def read_prefs(form):
@@ -374,6 +432,7 @@ def signup_page():
         name = (form.get('name') or '').strip()
         email = (form.get('email') or '').strip().lower()
         zip_code = (form.get('zip') or '').strip()
+        password = form.get('password') or ''
         phone, prefs, error = read_prefs(form)
 
         if not error and (not name or not email or not zip_code):
@@ -383,12 +442,16 @@ def signup_page():
         elif not error and User.query.filter(db.func.lower(User.email) == email).first():
             error = "An account with that email already exists. Try logging in."
         if not error:
-            db.session.add(User(name=name, email=email, zip=zip_code, phone=phone, **prefs))
+            error = password_error(password, form.get('confirm') or '')
+        if not error:
+            user = User(name=name, email=email, zip=zip_code, phone=phone, **prefs)
+            user.set_password(password)
+            db.session.add(user)
             db.session.commit()
-            session['user_email'] = email
-            session['email'] = email
+            nxt = safe_next(url_for('home'))
+            log_in(user)
             flash("Welcome! You'll get alerts for ZIP " + zip_code + ".", "success")
-            return redirect(safe_next(url_for('home')))
+            return redirect(nxt)
     return render_template('signup.html', error=error, form=form)
 
 
@@ -407,11 +470,145 @@ def account_page():
             user.name, user.zip, user.phone = name, zip_code, phone
             for k, v in prefs.items():
                 setattr(user, k, v)
+            if user.telegram_chat_id:
+                user.notify_telegram = bool(request.form.get('notify_telegram'))
             db.session.commit()
             flash("Your settings were saved.", "success")
             return redirect(url_for('account_page'))
     return render_template('account.html', user=user, error=error,
-                           channels=notifications.channel_status(app))
+                           channels=notifications.channel_status(app),
+                           telegram_bot_name=telegram_bot.bot_username() if telegram_bot.configured() else None)
+
+
+@app.route('/account/password', methods=['POST'])
+@login_required
+def account_password():
+    user = current_user()
+    if user.password_hash and not user.check_password(request.form.get('current') or ''):
+        flash("Your current password isn't right.", "error")
+        return redirect(url_for('account_page'))
+    error = password_error(request.form.get('password') or '', request.form.get('confirm') or '')
+    if error:
+        flash(error, "error")
+        return redirect(url_for('account_page'))
+    had = bool(user.password_hash)
+    user.set_password(request.form['password'])
+    db.session.commit()
+    flash("Password changed." if had else "Password added. You can now log in with your email too.", "success")
+    return redirect(url_for('account_page'))
+
+
+@app.route('/account/telegram', methods=['POST'])
+@login_required
+def account_telegram():
+    """Connect: send the user to the bot with a one-time code. Disconnect: forget their chat."""
+    user = current_user()
+    if request.form.get('action') == 'disconnect':
+        user.telegram_chat_id, user.notify_telegram, user.telegram_link_code = None, False, None
+        db.session.commit()
+        flash("Telegram disconnected.", "success")
+        return redirect(url_for('account_page'))
+    name = telegram_bot.bot_username() if telegram_bot.configured() else None
+    if not name:
+        flash("The Telegram bot isn't set up on this server yet.", "error")
+        return redirect(url_for('account_page'))
+    user.telegram_link_code = secrets.token_urlsafe(16)
+    db.session.commit()
+    return redirect(f"https://t.me/{name}?start={user.telegram_link_code}")
+
+
+# ---------------------------------------------------------------- Sign in with Google
+# Google's standard OAuth 2.0 web flow. Set GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET in .env.
+
+GOOGLE_AUTH = "https://accounts.google.com/o/oauth2/v2/auth"
+GOOGLE_TOKEN = "https://oauth2.googleapis.com/token"
+GOOGLE_USERINFO = "https://openidconnect.googleapis.com/v1/userinfo"
+
+
+def google_redirect_uri():
+    return url_for('google_callback', _external=True)
+
+
+@app.route('/auth/google')
+def google_login():
+    if not google_configured():
+        flash("Sign in with Google isn't set up on this server yet.", "error")
+        return redirect(url_for('login_page'))
+    state = secrets.token_urlsafe(24)
+    session['oauth_state'] = state
+    session['oauth_next'] = safe_next(url_for('reports_page'))
+    params = {"client_id": os.environ['GOOGLE_CLIENT_ID'], "redirect_uri": google_redirect_uri(),
+              "response_type": "code", "scope": "openid email profile", "state": state,
+              "prompt": "select_account"}
+    return redirect(requests.Request('GET', GOOGLE_AUTH, params=params).prepare().url)
+
+
+@app.route('/auth/google/callback')
+def google_callback():
+    state = session.pop('oauth_state', None)
+    nxt = session.pop('oauth_next', None) or url_for('reports_page')
+    if not state or not hmac.compare_digest(state, request.args.get('state', '')) or 'code' not in request.args:
+        flash("Google sign-in was cancelled or expired. Please try again.", "error")
+        return redirect(url_for('login_page'))
+    try:
+        tok = requests.post(GOOGLE_TOKEN, timeout=15, data={
+            "code": request.args['code'], "client_id": os.environ['GOOGLE_CLIENT_ID'],
+            "client_secret": os.environ['GOOGLE_CLIENT_SECRET'], "redirect_uri": google_redirect_uri(),
+            "grant_type": "authorization_code"})
+        tok.raise_for_status()
+        info = requests.get(GOOGLE_USERINFO, timeout=15,
+                            headers={"Authorization": f"Bearer {tok.json()['access_token']}"})
+        info.raise_for_status()
+        info = info.json()
+    except Exception as e:
+        print(f"[google] sign-in failed: {e}", flush=True)
+        flash("Couldn't sign you in with Google. Please try again.", "error")
+        return redirect(url_for('login_page'))
+    email = (info.get('email') or '').lower()
+    if not email or not info.get('email_verified'):
+        flash("Your Google account's email isn't verified, so we can't use it to sign in.", "error")
+        return redirect(url_for('login_page'))
+    user = (User.query.filter_by(google_sub=info['sub']).first()
+            or User.query.filter(db.func.lower(User.email) == email).first())
+    if user:
+        if not user.google_sub:
+            user.google_sub = info['sub']
+            db.session.commit()
+        log_in(user)
+        return redirect(nxt)
+    # New neighbor: we still need their ZIP code before creating the account.
+    session['google_profile'] = {"sub": info['sub'], "email": email,
+                                 "name": info.get('name') or email.split('@')[0]}
+    session['oauth_next'] = nxt
+    return redirect(url_for('google_finish'))
+
+
+@app.route('/signup/google', methods=['GET', 'POST'])
+def google_finish():
+    profile = session.get('google_profile')
+    if not profile:
+        return redirect(url_for('signup_page'))
+    error = None
+    form = {"notify_email": "on", "name": profile['name']}
+    if request.method == 'POST':
+        form = request.form
+        name = (form.get('name') or '').strip()
+        zip_code = (form.get('zip') or '').strip()
+        phone, prefs, error = read_prefs(form)
+        if not error and (not name or not zip_code):
+            error = "Please fill in your name and ZIP code."
+        if not error and User.query.filter(db.func.lower(User.email) == profile['email']).first():
+            error = "An account with that email already exists. Try logging in."
+        if not error:
+            user = User(name=name, email=profile['email'], zip=zip_code, phone=phone,
+                        google_sub=profile['sub'], **prefs)
+            db.session.add(user)
+            db.session.commit()
+            nxt = session.get('oauth_next') or url_for('home')
+            log_in(user)
+            flash("Welcome! You'll get alerts for ZIP " + zip_code + ".", "success")
+            return redirect(nxt)
+    return render_template('signup_google.html', error=error, form=form, email=profile['email'])
 
 
 @app.route('/account/test', methods=['POST'])
@@ -619,6 +816,7 @@ def get_reports():
     if zip_code:
         query = query.filter_by(zip=zip_code)
     reports = query.order_by(Report.resolved.asc()).all()
+    is_admin = bool(session.get('admin'))
 
     return jsonify([{
         "id": r.id,
@@ -626,8 +824,9 @@ def get_reports():
         "category": category_of(r),
         "description": r.description,
         "zip": r.zip,
-        "email": r.email,
-        "phone": r.phone,
+        # Reporter contact details are for admins only.
+        "email": r.email if is_admin else None,
+        "phone": r.phone if is_admin else None,
         "resolved": r.resolved,
         "lat": r.lat,
         "lng": r.lng,
@@ -784,7 +983,11 @@ def user_by_phone(raw):
                  if notifications.normalize_phone(u.phone) == phone), None)
 
 
-def process_message(text, user=None, default_zip=None, media_url=None):
+WHATSAPP_HINT = " Sign up on the website with this phone number to get notified when someone responds."
+
+
+def process_message(text, user=None, default_zip=None, media_url=None, source='whatsapp',
+                    signup_hint=WHATSAPP_HINT):
     """Let the AI read one community message and create a report / lost / found post.
 
     Returns (reply_text, link or None, extraction).
@@ -798,7 +1001,7 @@ def process_message(text, user=None, default_zip=None, media_url=None):
     lat, lng = geo.locate(ex.location, zip_code, seed=text)
     if ex.action == 'report':
         r = create_report(ex.category, ex.description, zip_code, lat, lng, title=ex.title,
-                          source='whatsapp', email=user.email if user else '',
+                          source=source, email=user.email if user else '',
                           phone=user.phone if user else '', image_url=media_url,
                           exclude_email=user.email if user else None)
         return f"Thanks! I posted a report: \"{r.type}\" in ZIP {zip_code} and alerted neighbors.", \
@@ -806,10 +1009,10 @@ def process_message(text, user=None, default_zip=None, media_url=None):
     owner = user or bot_user()
     item = create_lost_item(owner, ex.action, ex.title, ex.item_category, ex.description, zip_code,
                             place=ex.location or None, image_url=media_url, lat=lat, lng=lng,
-                            source='whatsapp')
+                            source=source)
     reply = f"Thanks! I posted a {ex.action} item: \"{item.title}\" in ZIP {zip_code}."
     if not user:
-        reply += " Sign up on the website with this phone number to get notified when someone responds."
+        reply += signup_hint
     return reply, f"/lost-found/{item.id}", ex
 
 
@@ -861,6 +1064,85 @@ def whatsapp_webhook():
     return xml, 200, {"Content-Type": "application/xml"}
 
 
+# ---------------------------------------------------------------- Telegram bot
+
+TELEGRAM_HELP = ("Hi! I'm the Neighborhood Watch bot.\n\n"
+                 "- Send me a message about an incident or a lost/found item and I'll post it for your neighbors.\n"
+                 "- Add me to your neighborhood group and I'll do the same for messages there. "
+                 "Set the group's area with /zip 94103.\n"
+                 "- To get alerts here, open your Account page on the website and click Connect Telegram.\n\n"
+                 "/stop pauses alerts, /start resumes them.")
+TELEGRAM_HINT = " Connect Telegram on your Account page on the website to get notified when someone responds."
+
+
+def handle_telegram(update):
+    msg = update.get('message') or {}
+    chat, sender = msg.get('chat') or {}, msg.get('from') or {}
+    text = (msg.get('text') or msg.get('caption') or '').strip()
+    if not chat or not text or sender.get('is_bot'):
+        return
+    chat_id = str(chat['id'])
+    is_group = chat.get('type') in ('group', 'supergroup')
+
+    def say(t):
+        telegram_bot.send_message(chat_id, t)
+
+    cmd, arg = '', ''
+    if text.startswith('/'):
+        first, _, arg = text.partition(' ')
+        cmd, arg = first.split('@')[0].lower(), arg.strip()
+    base = (os.environ.get('PUBLIC_BASE_URL') or 'http://localhost:5000').rstrip('/')
+
+    with app.app_context():
+        # In a private chat the chat id is the person's Telegram id, so this finds them in groups too.
+        user = User.query.filter_by(telegram_chat_id=str(sender.get('id'))).first()
+        if cmd == '/start' and not is_group:
+            if arg:
+                linked = User.query.filter_by(telegram_link_code=arg).first()
+                if not linked:
+                    return say("That link has expired. Open your Account page and click Connect Telegram again.")
+                User.query.filter(User.telegram_chat_id == chat_id, User.id != linked.id) \
+                    .update({"telegram_chat_id": None, "notify_telegram": False})
+                linked.telegram_chat_id, linked.notify_telegram, linked.telegram_link_code = chat_id, True, None
+                db.session.commit()
+                return say(f"Connected, {linked.first_name}! You'll get Neighborhood Watch alerts for "
+                           f"ZIP {linked.zip} here. Send /stop to pause them.")
+            if user and not user.notify_telegram:
+                user.notify_telegram = True
+                db.session.commit()
+                return say("Alerts are back on.")
+            return say(TELEGRAM_HELP)
+        if cmd == '/stop' and not is_group:
+            if user:
+                user.notify_telegram = False
+                db.session.commit()
+            return say("Alerts paused. Send /start to turn them back on.")
+        if cmd == '/zip':
+            if not is_group:
+                return say("Your alert ZIP is set on your Account page on the website.")
+            if not re.fullmatch(r"\d{5}", arg):
+                return say("Send the group's 5-digit ZIP code, like /zip 94103.")
+            group = db.session.get(TelegramGroup, chat_id) or TelegramGroup(chat_id=chat_id)
+            group.title, group.zip = chat.get('title'), arg
+            db.session.add(group)
+            db.session.commit()
+            return say(f"Got it. I'll treat messages in this group as being about ZIP {arg}.")
+        if cmd:
+            return None if is_group else say(TELEGRAM_HELP)
+
+        group = db.session.get(TelegramGroup, chat_id) if is_group else None
+        if not is_group and ai.engine() == 'ollama':
+            say("Got it, reading your message now.")
+        reply, link, ex = process_message(text, user, default_zip=group.zip if group else None,
+                                          source='telegram', signup_hint=TELEGRAM_HINT)
+        if is_group and not link:
+            # Stay quiet about ordinary chatter; only speak up when something was posted or a ZIP is missing.
+            if ex.action != 'none':
+                say("I spotted something to post but don't know the area. Set this group's ZIP with /zip 94103.")
+            return
+        say(reply + (f"\n{base}{link}" if link else ''))
+
+
 @app.route('/admin/ai-test', methods=['POST'])
 def admin_ai_test():
     if not session.get('admin'):
@@ -888,8 +1170,10 @@ def poll_news():
             areas.setdefault((info["city"], info["state"]), []).append(z)
     stats = {"areas": len(areas), "articles": 0, "incidents": 0, "resolved": 0}
     for (city, state), area_zips in areas.items():
-        open_news = Report.query.filter(Report.zip.in_(area_zips), Report.source == 'news',
-                                        db.or_(Report.resolved.is_(False), Report.resolved.is_(None))).all()
+        # Every open report from the last week (neighbor, chat or news), so a news story can resolve any of them.
+        week_ago = datetime.utcnow() - timedelta(days=7)
+        open_news = Report.query.filter(Report.zip.in_(area_zips), Report.created_at >= week_ago,
+                                        db.or_(Report.resolved.is_(False), Report.resolved.is_(None)))             .order_by(Report.created_at.desc()).limit(40).all()
         for a in news.fetch_for_area(city, state)[:25]:
             if NewsArticle.query.filter_by(url=a["url"][:800]).first():
                 continue
@@ -925,11 +1209,17 @@ def poll_news():
     return stats
 
 
+LAST_POLL = {"at": None, "stats": None, "error": None}
+
+
 def run_news_poll():
     with app.app_context():
         try:
-            print(f"[news] poll finished: {poll_news()}", flush=True)
+            stats = poll_news()
+            LAST_POLL.update(at=datetime.utcnow(), stats=stats, error=None)
+            print(f"[news] poll finished: {stats}", flush=True)
         except Exception as e:
+            LAST_POLL.update(at=datetime.utcnow(), error=str(e)[:200])
             print(f"[news] poll failed: {e}", flush=True)
 
 
@@ -981,7 +1271,7 @@ def admin_login():
     data = request.json
     username = data.get("username")
     token = data.get("token")
-    secret = ADMINS.get(username)
+    secret = ADMINS.get((username or '').strip().lower())
     if secret and pyotp.TOTP(secret).verify(token):
         session['admin'] = username
         return jsonify({"message": f"Logged in as {username}"}), 200
@@ -994,17 +1284,6 @@ def admin_logout():
     return jsonify({"message": "Logged out"}), 200
 
 
-@app.route('/api/login', methods=['POST'])
-def login():
-    data = request.json
-    email = data.get("email")
-    user = User.query.filter_by(email=email).first()
-    if user:
-        session["user_email"] = email
-        return jsonify({"message": "Logged in"}), 200
-    return jsonify({"error": "User not found"}), 404
-
-
 if __name__ == '__main__':
     # Set APP_DEBUG=0 when the app is reachable from the internet (e.g. through ngrok):
     # debug mode shows code and an interactive console on error pages.
@@ -1012,4 +1291,5 @@ if __name__ == '__main__':
     # With the debug reloader, only the child process (WERKZEUG_RUN_MAIN=true) serves requests.
     if not debug or os.environ.get('WERKZEUG_RUN_MAIN') == 'true':
         start_news_poller()
+        telegram_bot.start_polling(handle_telegram)
     app.run(debug=debug)

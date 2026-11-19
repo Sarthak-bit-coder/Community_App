@@ -12,8 +12,10 @@ Built with Flask, SQLite and Leaflet maps.
 | **Incident reports** | Report car crashes, fires, hazards, break-ins and more, with a photo and an exact pin. Tap **Use my location** to drop the pin where you're standing. |
 | **Local news** | Checks Google News, your chosen local outlets' RSS feeds and NewsAPI for every member ZIP. The AI turns real incidents into map reports and alerts neighbors. When a follow-up article says it's over ("road reopened"), the report is resolved and taken off the map automatically. Stale news incidents clear themselves after 48 h. |
 | **WhatsApp AI bot** | Neighbors forward messages from their WhatsApp group to the app's number. The AI reads each one and creates a report or a lost/found post when it spots one (for example, "lost brown dog near 24th & Mission" becomes a lost-pet post with a pin and a search circle). It replies with a link. |
+| **Telegram bot (free)** | Members connect Telegram from their Account page for free alerts. Anyone can message the bot about an incident or a lost item, and if you add it to a neighborhood group it reads the group's messages and posts the important ones, without anyone forwarding them. |
 | **Lost & Found** | Post lost or found items. A *lost* post alerts neighbors in the same ZIP. A *found* post alerts everyone with a matching open lost post (same ZIP and category). Tapping **"I found this"** or **"This is mine"** sends your message and contact details straight to the poster. |
-| **Multi-channel alerts** | Each member picks email, SMS, WhatsApp, or any mix of them. Every alert is also saved to an in-app inbox, shown under the 🔔 bell. |
+| **Accounts** | Sign up with an email and password, or with one click using **Sign in with Google**. |
+| **Multi-channel alerts** | Each member picks email, SMS, WhatsApp, Telegram, or any mix of them. Every alert is also saved to an in-app inbox, shown under the 🔔 bell. |
 | **Important updates** | Admins post announcements to everyone or to a single ZIP. *Urgent* updates also show as a banner across the site. |
 | **Admin dashboard** | Admins sign in with an authenticator app (TOTP). From the dashboard they can resolve and delete reports, post updates, and see which delivery channels are configured. |
 
@@ -66,6 +68,8 @@ Members turn on SMS or WhatsApp in **Account** settings and add their mobile num
 | Ollama (local AI) | Free AI that reads WhatsApp messages and news, running on your own PC | Free, no account. Needs about 2 GB of disk and RAM. | <https://ollama.com/download> |
 | Anthropic Claude (Haiku 5.5) | The most accurate AI option (optional) | Pay-as-you-go, about $0.10 per million input tokens (roughly 1,000 messages per cent) | <https://console.anthropic.com/> |
 | Twilio | SMS + WhatsApp alerts, WhatsApp bot | Free trial credit; WhatsApp sandbox is free for testing | <https://www.twilio.com/try-twilio> |
+| Telegram Bot API | Free alerts and the group-chat AI bot | Free, no limits for normal use | Message [@BotFather](https://t.me/BotFather) in Telegram |
+| Google sign-in (OAuth) | "Sign in with Google" button | Free | <https://console.cloud.google.com/apis/credentials> |
 | ngrok | Gives your local app a public URL so Twilio can reach it | Free plan | <https://ngrok.com/download> |
 
 ## Putting the app online (ngrok)
@@ -80,6 +84,16 @@ Members turn on SMS or WhatsApp in **Account** settings and add their mobile num
 
 The site asks for the username and password. `/webhooks/...` stays open so Twilio can deliver WhatsApp messages, and the app checks Twilio's signature there. Free ngrok accounts keep the same address across restarts. The site is only reachable while your PC, the app and ngrok are running. Press Ctrl+C in the ngrok window (or run `Stop-Process -Name ngrok`) to go offline.
 
+### Start automatically with Windows
+
+`start_all.ps1` starts the app and the ngrok link in the background, hidden, skipping anything already running. App output goes to `logs\app.log`. To run it every time you sign in to Windows, put a launcher in your Startup folder (press Win+R and type `shell:startup` to open it). Create a file there called `Neighborhood Watch.vbs` containing one line, with your own project path:
+
+```
+CreateObject("WScript.Shell").Run "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""C:\path\to\Community_App\start_all.ps1""", 0, False
+```
+
+Stop everything with `powershell -ExecutionPolicy Bypass -File .\stop_all.ps1`. Delete the `.vbs` file to turn auto-start off. The news check, the Telegram bot and the public link all run as long as the app is running.
+
 ## Free AI (no credits): Ollama
 
 The AI that reads WhatsApp messages and news can run **for free on your own computer** with [Ollama](https://ollama.com), which runs open-source models locally. There's no account, no API key and no per-message cost, and messages never leave your machine.
@@ -91,6 +105,26 @@ The AI that reads WhatsApp messages and news can run **for free on your own comp
 On a laptop without a graphics card, each message takes a few seconds. If your PC has 16 GB+ of RAM and you want better accuracy, try `OLLAMA_MODEL=qwen2.5:7b`.
 
 **How the app picks an engine** (`AI_ENGINE=auto`): Claude if `ANTHROPIC_API_KEY` is set, otherwise Ollama if it's running, otherwise the built-in keyword rules. The keyword rules are also free. They recognize incident types, lost/found items, intersections ("24th St & Mission") and landmarks ("near Dolores Park"), but they're less accurate than a real model. Set `AI_ENGINE=ollama` or `AI_ENGINE=keywords` to force one.
+
+## Setting up the Telegram bot (free)
+
+1. In Telegram, open [@BotFather](https://t.me/BotFather), send `/newbot`, and pick a name and a username ending in `bot`.
+2. Paste the token BotFather gives you into `.env` as `TELEGRAM_BOT_TOKEN`, then restart the app. The console shows `[telegram] listening as @yourbot`.
+3. Members open **Account → Connect Telegram** and press **Start** in Telegram. Their alerts now arrive there too.
+4. Optional, for group chats: send `/setprivacy` to BotFather, pick your bot, and choose **Disable** so it can read every message. Add the bot to your neighborhood group and send `/zip 94103` there once so it knows the area.
+
+The bot doesn't need a public URL or ngrok: the app asks Telegram for new messages itself (long polling). In a group, the bot stays quiet unless it posts something. Commands: `/start`, `/stop` (pause alerts), `/zip 12345` (in groups), `/help`.
+
+## Setting up Sign in with Google (free)
+
+1. Open the [Google Cloud console](https://console.cloud.google.com/apis/credentials) and create a project.
+2. **OAuth consent screen**: choose *External* and fill in the app name and your email. While it's in *Testing*, add the Google accounts that may sign in under *Test users* (or publish it).
+3. **Credentials → Create credentials → OAuth client ID → Web application**. Under *Authorized redirect URIs* add both:
+   * `http://localhost:5000/auth/google/callback`
+   * `https://<your ngrok domain>/auth/google/callback`
+4. Copy the client ID and secret into `.env` as `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`, then restart the app. The **Continue with Google** button appears on the login and signup pages.
+
+New Google users are asked for their ZIP code once. An existing member who signs in with Google using the same email is logged into their existing account.
 
 ## Setting up the WhatsApp AI bot
 
@@ -122,7 +156,7 @@ You can try the AI without Twilio: paste any message into **Admin → WhatsApp A
 | Admin update | All members, or only the chosen ZIP |
 | Local news incident | Members in every ZIP of that city |
 | News says an incident is over / report marked resolved | Members in that ZIP ("Resolved: …") |
-| WhatsApp message turned into a post | Same as a report or lost/found post made on the website |
+| WhatsApp or Telegram message turned into a post | Same as a report or lost/found post made on the website |
 
 Sending runs on a background thread, so a slow SMS or email provider never slows down the page.
 
@@ -139,7 +173,8 @@ app.py               Flask app: models, routes, notification fan-out, news + Wha
 ai.py                Claude Haiku classification of messages/news (keyword fallback)
 news.py              Google News RSS, outlet RSS and NewsAPI fetchers
 geo.py               Nominatim geocoding (ZIP -> city, place -> coordinates)
-notifications.py     Email / SMS / WhatsApp senders (Flask-Mail + Twilio REST API)
+notifications.py     Email / SMS / WhatsApp / Telegram senders (Flask-Mail, Twilio REST API)
+telegram_bot.py      Telegram Bot API: long polling and sending messages
 static/map.js        Map overlay: category markers, circles, popups, layer toggles
 authenticator.py     Generates admin TOTP QR codes
 templates/           Jinja templates (base.html is the shared layout)
@@ -160,5 +195,6 @@ static/uploads/      Uploaded photos
 | `/updates` | Community announcements |
 | `/notifications` | In-app notification inbox |
 | `/account` | Profile and alert channel settings |
-| `/signup`, `/login`, `/logout` | Member accounts (email-only login) |
+| `/signup`, `/login`, `/logout` | Member accounts (email + password) |
+| `/auth/google`, `/signup/google` | Sign in with Google |
 | `/admin` | Admin dashboard |

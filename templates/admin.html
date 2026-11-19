@@ -82,6 +82,7 @@
         <span class="pill {{ 'on' if channels.email }}">Email {{ 'on' if channels.email else 'off' }}</span>
         <span class="pill {{ 'on' if channels.sms }}">SMS {{ 'on' if channels.sms else 'off' }}</span>
         <span class="pill {{ 'on' if channels.whatsapp }}">WhatsApp {{ 'on' if channels.whatsapp else 'off' }}</span>
+        <span class="pill {{ 'on' if channels.telegram }}">Telegram {{ 'on' if channels.telegram else 'off' }}</span>
       </div>
       <h3>Recent updates</h3>
       {% if announcements %}
@@ -111,11 +112,12 @@
 
   <div class="split" style="margin-bottom:24px;align-items:start">
     <div class="card">
-      <h2 style="font-size:1.15rem">WhatsApp AI</h2>
-      <p class="muted small">Neighbors forward group messages to your Twilio WhatsApp number. The AI ({{ ai_label }}) turns incidents and lost/found items into posts automatically.{% if ai_engine == 'keywords' %} For smarter free AI, install Ollama (see README).{% endif %}</p>
+      <h2 style="font-size:1.15rem">Chat AI (WhatsApp and Telegram)</h2>
+      <p class="muted small">Neighbors message the Telegram bot (free) or your Twilio WhatsApp number, or add the Telegram bot to their group. The AI ({{ ai_label }}) turns incidents and lost/found items into posts automatically.{% if ai_engine == 'keywords' %} For smarter free AI, install Ollama (see README).{% endif %}</p>
       <div class="channel-status" style="margin-bottom:12px">
         <span class="pill {{ 'on' if ai_engine != 'keywords' }}">AI: {{ ai_label }}</span>
         <span class="pill {{ 'on' if channels.whatsapp }}">WhatsApp {{ 'connected' if channels.whatsapp else 'not set up' }}</span>
+        <span class="pill {{ 'on' if channels.telegram }}">Telegram {{ 'connected' if channels.telegram else 'not set up' }}</span>
       </div>
       <p class="small" style="margin-bottom:6px"><strong>Twilio webhook URL</strong> (paste into "When a message comes in"):</p>
       <input class="input small" readonly value="{{ webhook_url }}" onclick="this.select()" style="margin-bottom:16px">
@@ -144,6 +146,16 @@
         <button class="btn btn-ghost" type="submit">Check news now</button>
         <span class="muted small">&nbsp;{{ news_checked }} articles screened so far</span>
       </form>
+      <p class="small" style="margin:-6px 0 16px">
+        {% if poll_minutes <= 0 %}
+          Automatic checks are off (NEWS_POLL_MINUTES=0).
+        {% elif last_poll.at %}
+          Last checked {{ last_poll.at|ago }}{% if last_poll.error %}, but it failed: {{ last_poll.error }}{% else %}: {{ last_poll.stats.articles }} new articles, {{ last_poll.stats.incidents }} new incidents, {{ last_poll.stats.resolved }} resolved{% endif %}.
+          Checks again every {{ poll_minutes|int }} minutes.
+        {% else %}
+          Checks every {{ poll_minutes|int }} minutes. The first check runs about 30 seconds after the app starts.
+        {% endif %}
+      </p>
       <h3>Recently picked up</h3>
       {% if recent_news %}
       <div class="mini-list">

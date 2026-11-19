@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% from "_prefs.html" import alert_prefs %}
+{% block title %}Finish signing up{% endblock %}
+{% block content %}
+<div class="auth-split">
+  <div class="auth-photo" style="background-image:url('{{ url_for('static', filename='img/neighbors-porch.webp') }}');background-position:center 65%">
+    <blockquote>Hear about what matters on your block, from the people who live there.</blockquote>
+  </div>
+  <div class="auth-panel">
+    <div class="auth-card" style="max-width:440px">
+      <h1>One last step</h1>
+      <p class="sub">You're signing up as {{ email }}. Tell us your ZIP code so we can send you the right alerts.</p>
+      {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+      <form method="POST">
+        <div class="row">
+          <div class="field">
+            <label for="name">Full name</label>
+            <input class="input" id="name" name="name" required value="{{ form.get('name', '') }}">
+          </div>
+          <div class="field">
+            <label for="zip">ZIP code</label>
+            <input class="input" id="zip" name="zip" placeholder="94103" inputmode="numeric" maxlength="10" required autofocus value="{{ form.get('zip', '') }}">
+          </div>
+        </div>
+        {{ alert_prefs(form.get('phone'), form.get('notify_email'), form.get('notify_sms'), form.get('notify_whatsapp')) }}
+        <button class="btn btn-primary btn-block btn-lg" type="submit">Create account</button>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

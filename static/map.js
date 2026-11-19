@@ -36,7 +36,7 @@
     lost_item:      { label: 'Lost item',            icon: 'search',  color: '#e11d48', group: 'lost' },
     found_item:     { label: 'Found item',           icon: 'box',     color: '#2563eb', group: 'found' },
   };
-  const SOURCES = { news: 'Local news', whatsapp: 'WhatsApp group', community: 'Neighbor report' };
+  const SOURCES = { news: 'Local news', whatsapp: 'WhatsApp group', telegram: 'Telegram group', community: 'Neighbor report' };
 
   function cat(key) { return CATS[key] || CATS.other; }
 
@@ -49,7 +49,7 @@
   function icon(f) {
     const c = cat(f.category);
     const src = f.source === 'news' ? `<span class="nw-src">${svg('news', 10, 2.4)}</span>`
-              : f.source === 'whatsapp' ? `<span class="nw-src">${svg('chat', 10, 2.4)}</span>` : '';
+              : (f.source === 'whatsapp' || f.source === 'telegram') ? `<span class="nw-src">${svg('chat', 10, 2.4)}</span>` : '';
     return L.divIcon({
       className: 'nw-marker-wrap',
       html: `<div class="nw-marker ${f.resolved ? 'is-resolved' : ''}" style="--c:${c.color}">${svg(c.icon, 15, 2.2)}${src}</div>`,
