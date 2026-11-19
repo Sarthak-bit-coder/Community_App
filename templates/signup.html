@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_prefs.html" import alert_prefs %}
+{% from "_google.html" import google_button with context %}
 {% block title %}Sign up{% endblock %}
 {% block content %}
 <div class="auth-split">
@@ -11,6 +12,7 @@
       <h1>Join your neighborhood</h1>
       <p class="sub">Free alerts about incidents, lost pets and local news in your ZIP code.</p>
       {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+      {{ google_button("Sign up with Google") }}
       <form method="POST">
         <div class="field">
           <label for="name">Full name</label>
@@ -24,6 +26,17 @@
           <div class="field">
             <label for="zip">ZIP code</label>
             <input class="input" id="zip" name="zip" placeholder="94103" inputmode="numeric" maxlength="10" required value="{{ form.get('zip', '') }}">
+          </div>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="password">Password</label>
+            <input class="input" id="password" type="password" name="password" required minlength="8" autocomplete="new-password">
+            <span class="hint">At least 8 characters.</span>
+          </div>
+          <div class="field">
+            <label for="confirm">Confirm password</label>
+            <input class="input" id="confirm" type="password" name="confirm" required minlength="8" autocomplete="new-password">
           </div>
         </div>
         {{ alert_prefs(form.get('phone'), form.get('notify_email'), form.get('notify_sms'), form.get('notify_whatsapp')) }}

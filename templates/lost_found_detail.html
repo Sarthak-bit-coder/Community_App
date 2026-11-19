@@ -28,7 +28,7 @@
         {% if item.place %}<dt>Where</dt><dd>{{ item.place }}</dd>{% endif %}
         <dt>ZIP</dt><dd>{{ item.zip }}</dd>
         {% if item.seen_on %}<dt>{{ 'Lost on' if item.kind == 'lost' else 'Found on' }}</dt><dd>{{ item.seen_on }}</dd>{% endif %}
-        {% if item.source == 'whatsapp' %}<dt>Source</dt><dd>Posted from a WhatsApp group</dd>{% endif %}
+        {% if item.source in ('whatsapp', 'telegram') %}<dt>Source</dt><dd>Posted from a {{ 'WhatsApp' if item.source == 'whatsapp' else 'Telegram' }} group</dd>{% endif %}
       </dl>
       {% if item.lat is not none and item.lng is not none %}
       <h3 style="margin-top:20px">{{ 'Last seen around here' if item.kind == 'lost' else 'Found around here' }}</h3>

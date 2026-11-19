@@ -1,26 +1,31 @@
+"""Make admin QR codes for an authenticator app (Google Authenticator, Authy...).
+
+    python authenticator.py            QR codes for every ADMIN_TOTP_* in .env
+    python authenticator.py Maya       also creates a new secret for Maya and adds it to .env
+
+QR images go to instance/admin_qr/ (git-ignored). Share each one only with that admin.
+"""
+import os
+import sys
+
 import pyotp
 import qrcode
+from dotenv import load_dotenv
 
-# Dictionary of admins with their TOTP secrets
-admins = {
-    "Sarthak": "JBSWY3DPEHPK3PXP",
-    "Ayesha": "KZXW6YTBMFWWKZLU",
-    "Shubham": "MFRGGZDFMZTWQ2LK",
-    "Anav": "ONSWG4TFOQYTEMY=",
-}
+load_dotenv('.env')
+for name in sys.argv[1:]:
+    if not os.environ.get(f'ADMIN_TOTP_{name}'):
+        secret = pyotp.random_base32()
+        with open('.env', 'a', encoding='utf-8') as f:
+            f.write(f'\nADMIN_TOTP_{name}={secret}\n')
+        os.environ[f'ADMIN_TOTP_{name}'] = secret
 
-# Generate and save QR codes for each admin
-for email, secret in admins.items():
-    totp = pyotp.TOTP(secret)
-    uri = totp.provisioning_uri(name=email, issuer_name="Neighborhood Watch")
-
-    # Create QR code image
-    img = qrcode.make(uri)
-
-    # Save to a file
-    filename = f"{email.replace('@', '_at_')}.png"
-    img.save(filename)
-    print(f"Saved QR code for {email} as {filename}")
-
-    # Optional: Show the QR code
-    img.show()
+out = os.path.join('instance', 'admin_qr')
+os.makedirs(out, exist_ok=True)
+for key, secret in os.environ.items():
+    if key.upper().startswith('ADMIN_TOTP_') and secret:
+        name = key[len('ADMIN_TOTP_'):].title()
+        uri = pyotp.TOTP(secret).provisioning_uri(name=name, issuer_name="Neighborhood Watch")
+        path = os.path.join(out, f'{name}.png')
+        qrcode.make(uri).save(path)
+        print(f'Saved {path}')

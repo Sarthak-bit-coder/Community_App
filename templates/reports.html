@@ -66,7 +66,7 @@
       const card = document.createElement('div');
       card.className = 'report-card clickable';
       card.id = 'card-' + f.id;
-      const src = { news: 'Local news', whatsapp: 'WhatsApp', community: '' }[f.source] || '';
+      const src = { news: 'Local news', whatsapp: 'WhatsApp', telegram: 'Telegram', community: '' }[f.source] || '';
       card.innerHTML = `
         ${NWMap.badge(f.category, 34)}
         <div class="body">
