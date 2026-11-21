@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Forgot password{% endblock %}
+{% block content %}
+<div class="auth-split">
+  <div class="auth-photo" style="background-image:url('{{ url_for('static', filename='img/brownstone-street.webp') }}')">
+    <blockquote>Good neighbors keep an eye out for each other.</blockquote>
+  </div>
+  <div class="auth-panel">
+    <div class="auth-card">
+      {% if sent %}
+      <h1>Check your email</h1>
+      <p class="sub">If an account uses that address, we've sent it a link to choose a new password. The link works for one hour.</p>
+      <p class="muted small">Nothing arrived? Check your spam folder, or <a class="text-link" href="{{ url_for('forgot_page') }}">try again</a>.</p>
+      {% else %}
+      <h1>Forgot your password?</h1>
+      <p class="sub">Enter your email and we'll send you a link to choose a new one.</p>
+      <form method="POST">
+        <div class="field">
+          <label for="email">Email</label>
+          <input class="input" id="email" type="email" name="email" placeholder="you@example.com" required autofocus>
+        </div>
+        <button class="btn btn-primary btn-block btn-lg" type="submit">Send reset link</button>
+      </form>
+      {% endif %}
+      <p class="auth-foot"><a class="text-link" href="{{ url_for('login_page') }}">Back to log in</a></p>
+    </div>
+  </div>
+</div>
+{% endblock %}

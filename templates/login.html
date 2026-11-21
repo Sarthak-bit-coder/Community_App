@@ -19,7 +19,7 @@
                  value="{{ request.form.get('email', '') }}">
         </div>
         <div class="field">
-          <label for="password">Password</label>
+          <label for="password" style="display:flex;justify-content:space-between">Password <a class="text-link small" href="{{ url_for('forgot_page') }}">Forgot password?</a></label>
           <input class="input" id="password" type="password" name="password" required autocomplete="current-password">
         </div>
         <button class="btn btn-primary btn-block btn-lg" type="submit">Log in</button>

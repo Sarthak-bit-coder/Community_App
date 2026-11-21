@@ -160,6 +160,12 @@ You can try the AI without Twilio: paste any message into **Admin → WhatsApp A
 
 Sending runs on a background thread, so a slow SMS or email provider never slows down the page.
 
+## Passwords and sign-in safety
+
+* **Login limits:** after 5 wrong passwords for one email, that account's login pauses for 15 minutes. One IP address gets 20 wrong tries across all accounts. Admin codes lock after 5 wrong tries for 15 minutes. The counts reset when the app restarts.
+* **Forgot password:** the login page links to `/forgot`. Members get an email with a link that works for one hour and only once. The page gives the same answer whether or not the email has an account, so it can't be used to find members. Each address gets at most 3 reset emails an hour.
+* Reset emails need email set up (`MAIL_USERNAME` / `MAIL_PASSWORD`). Until then the reset link is written to the app log (`logs/app.log`) so you can pass it on yourself.
+
 ## Admin access
 
 Admins are listed in `ADMINS` in `app.py`, each with a TOTP secret. Run `python authenticator.py` to generate a QR code for each admin. Scan it with Google Authenticator, Authy or a similar app, then sign in at `/admin` with your username and the 6-digit code.
@@ -196,5 +202,6 @@ static/uploads/      Uploaded photos
 | `/notifications` | In-app notification inbox |
 | `/account` | Profile and alert channel settings |
 | `/signup`, `/login`, `/logout` | Member accounts (email + password) |
+| `/forgot`, `/reset/<token>` | Forgot password and reset link |
 | `/auth/google`, `/signup/google` | Sign in with Google |
 | `/admin` | Admin dashboard |
