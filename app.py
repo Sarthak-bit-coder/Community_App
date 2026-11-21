@@ -22,6 +22,7 @@ from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.middleware.proxy_fix import ProxyFix
 import pyotp
+from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 import requests
 
 try:  # optional: load settings from a .env file if python-dotenv is installed
@@ -58,7 +59,7 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
 # Behind ngrok (or another proxy) trust its X-Forwarded-Proto/Host so links use the public https address.
-app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 
 Session(app)
 CORS(app)
@@ -372,23 +373,151 @@ def inject_auth():
     return {"google_enabled": google_configured()}
 
 
+# ---------------------------------------------------------------- login attempt limits
+# Failed attempts are counted per email and per IP address (in memory, so a restart clears them).
+
+class AttemptLimiter:
+    def __init__(self, limit, window_minutes):
+        self.limit, self.window = limit, window_minutes * 60
+        self.hits = {}
+        self.lock = threading.Lock()
+
+    def _recent(self, key, now):
+        hits = [t for t in self.hits.get(key, []) if now - t < self.window]
+        self.hits[key] = hits
+        return hits
+
+    def blocked(self, *keys):
+        """Minutes until the first blocked key frees up, or 0 if none is blocked."""
+        now = time.time()
+        with self.lock:
+            for key in keys:
+                hits = self._recent(key, now)
+                if len(hits) >= self.limit:
+                    return max(1, int((hits[0] + self.window - now) // 60) + 1)
+        return 0
+
+    def hit(self, *keys):
+        now = time.time()
+        with self.lock:
+            for key in keys:
+                self._recent(key, now).append(now)
+
+    def clear(self, *keys):
+        with self.lock:
+            for key in keys:
+                self.hits.pop(key, None)
+
+
+login_limiter = AttemptLimiter(limit=5, window_minutes=15)       # wrong passwords per email
+ip_limiter = AttemptLimiter(limit=20, window_minutes=15)         # wrong passwords per IP (any email)
+admin_limiter = AttemptLimiter(limit=5, window_minutes=15)       # wrong admin codes per username / IP
+reset_limiter = AttemptLimiter(limit=3, window_minutes=60)       # reset emails per address
+
+
+def client_ip():
+    return request.remote_addr or 'unknown'
+
+
+def too_many(minutes):
+    return f"Too many attempts. Please wait {minutes} minute{'s' if minutes != 1 else ''} and try again."
+
+
 @app.route('/login', methods=['GET', 'POST'])
 def login_page():
     error = None
     if request.method == 'POST':
         email = (request.form.get('email') or '').strip().lower()
         password = request.form.get('password') or ''
+        keys = (f"email:{email}",)
+        wait = login_limiter.blocked(*keys) or ip_limiter.blocked(client_ip())
+        if wait:
+            return render_template('login.html', error=too_many(wait)), 429
         user = User.query.filter(db.func.lower(User.email) == email).first()
         if user and user.check_password(password):
+            login_limiter.clear(*keys)
             nxt = safe_next(url_for('reports_page'))
             log_in(user)
             return redirect(nxt)
+        login_limiter.hit(*keys)
+        ip_limiter.hit(client_ip())
         if user and not user.password_hash:
-            error = ("This account doesn't have a password yet. Sign in with Google using the same email, "
-                     "then add a password on your Account page.")
+            error = ("This account doesn't have a password yet. Use \"Forgot password\" below to set one, "
+                     "or sign in with Google using the same email.")
         else:
             error = "That email and password don't match."
     return render_template('login.html', error=error)
+
+
+# ---------------------------------------------------------------- forgot password
+# The reset link is signed with SECRET_KEY, expires after an hour, and stops working once the
+# password changes (it includes a fingerprint of the current password hash).
+
+RESET_MAX_AGE = 3600
+
+
+def reset_serializer():
+    return URLSafeTimedSerializer(app.secret_key, salt='password-reset')
+
+
+def password_fingerprint(user):
+    return hashlib.sha256((user.password_hash or 'no-password').encode()).hexdigest()[:16]
+
+
+def reset_token(user):
+    return reset_serializer().dumps({"id": user.id, "pw": password_fingerprint(user)})
+
+
+def user_from_reset_token(token):
+    try:
+        data = reset_serializer().loads(token, max_age=RESET_MAX_AGE)
+    except (BadSignature, SignatureExpired):
+        return None
+    user = db.session.get(User, data.get("id")) if isinstance(data, dict) else None
+    if not user or not hmac.compare_digest(data.get("pw", ""), password_fingerprint(user)):
+        return None
+    return user
+
+
+@app.route('/forgot', methods=['GET', 'POST'])
+def forgot_page():
+    sent = False
+    if request.method == 'POST':
+        email = (request.form.get('email') or '').strip().lower()
+        key = f"reset:{email}"
+        user = User.query.filter(db.func.lower(User.email) == email).first()
+        # Same answer whether or not the account exists, so this page can't be used to find members.
+        if user and user.email != BOT_EMAIL and not reset_limiter.blocked(key, f"reset-ip:{client_ip()}"):
+            reset_limiter.hit(key, f"reset-ip:{client_ip()}")
+            link = url_for('reset_page', token=reset_token(user), _external=True)
+            body = (f"Hi {user.first_name},\n\nSomeone (hopefully you) asked to reset your Neighborhood Watch "
+                    f"password. Choose a new one here:\n\n{link}\n\nThe link works for one hour. If you didn't "
+                    f"ask for this, you can ignore this email.\n\n— Neighborhood Watch")
+            if not notifications.email_configured(app):
+                # No email server yet: print the link so the site owner can pass it on.
+                notifications.log(f"[reset] email isn't set up; reset link for {user.email}: {link}")
+            notifications.dispatch(app, mail, [("email", user.email, "Reset your password", body)])
+        sent = True
+    return render_template('forgot.html', sent=sent)
+
+
+@app.route('/reset/<token>', methods=['GET', 'POST'])
+def reset_page(token):
+    user = user_from_reset_token(token)
+    if not user:
+        flash("That reset link has expired or was already used. Ask for a new one below.", "error")
+        return redirect(url_for('forgot_page'))
+    error = None
+    if request.method == 'POST':
+        error = password_error(request.form.get('password') or '', request.form.get('confirm') or '')
+        if not error:
+            user.set_password(request.form['password'])
+            db.session.commit()
+            login_limiter.clear(f"email:{user.email.lower()}")
+            log_in(user)
+            flash("Your password was changed and you're logged in.", "success")
+            return redirect(url_for('reports_page'))
+    return render_template('reset.html', error=error, email=user.email)
 
 
 @app.route('/logout')
@@ -1268,13 +1397,19 @@ def delete_report(id):
 
 @app.route('/admin/login', methods=['POST'])
 def admin_login():
-    data = request.json
-    username = data.get("username")
-    token = data.get("token")
-    secret = ADMINS.get((username or '').strip().lower())
+    data = request.get_json(silent=True) or {}
+    username = str(data.get("username") or "").strip()
+    token = str(data.get("token") or "").strip()
+    keys = (f"admin:{username.lower()}", f"admin-ip:{client_ip()}")
+    wait = admin_limiter.blocked(*keys)
+    if wait:
+        return jsonify({"error": too_many(wait)}), 429
+    secret = ADMINS.get(username.lower())
     if secret and pyotp.TOTP(secret).verify(token):
+        admin_limiter.clear(*keys)
         session['admin'] = username
         return jsonify({"message": f"Logged in as {username}"}), 200
+    admin_limiter.hit(*keys)
     return jsonify({"error": "Unauthorized"}), 401
 
 

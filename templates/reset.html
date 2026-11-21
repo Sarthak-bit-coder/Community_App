@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Choose a new password{% endblock %}
+{% block content %}
+<div class="auth-split">
+  <div class="auth-photo" style="background-image:url('{{ url_for('static', filename='img/brownstone-street.webp') }}')">
+    <blockquote>Good neighbors keep an eye out for each other.</blockquote>
+  </div>
+  <div class="auth-panel">
+    <div class="auth-card">
+      <h1>Choose a new password</h1>
+      <p class="sub">For {{ email }}.</p>
+      {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+      <form method="POST">
+        <div class="field">
+          <label for="password">New password</label>
+          <input class="input" id="password" type="password" name="password" required minlength="8" autocomplete="new-password" autofocus>
+          <span class="hint">At least 8 characters.</span>
+        </div>
+        <div class="field">
+          <label for="confirm">Confirm new password</label>
+          <input class="input" id="confirm" type="password" name="confirm" required minlength="8" autocomplete="new-password">
+        </div>
+        <button class="btn btn-primary btn-block btn-lg" type="submit">Save password and log in</button>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

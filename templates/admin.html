@@ -202,9 +202,13 @@
     const res = await fetch('/admin/login', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data)
     });
-    if (res.ok) location.reload();
-    else document.getElementById('loginMsg').innerHTML =
-      '<div class="alert alert-error">Wrong username or code. Codes refresh every 30 seconds.</div>';
+    if (res.ok) return location.reload();
+    const msg = res.status === 429 ? (await res.json()).error
+      : 'Wrong username or code. Codes refresh every 30 seconds.';
+    const box = document.createElement('div');
+    box.className = 'alert alert-error';
+    box.textContent = msg;
+    document.getElementById('loginMsg').replaceChildren(box);
   });
 </script>
 {% else %}
