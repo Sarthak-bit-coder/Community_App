@@ -1,8 +1,10 @@
 # Neighborhood Watch
 
-A community safety app for your neighborhood. Neighbors report incidents on a live map, post lost and found items, and get alerts by **email, SMS or WhatsApp** whenever something happens in their ZIP code.
+A community safety app for your neighborhood. Neighbors report incidents on a live map, post lost and found items, and get alerts by **email, Telegram, SMS or WhatsApp** whenever something happens in their ZIP code.
 
 Built with Flask, SQLite and Leaflet maps.
+
+> Combining this with another app? See [MERGING.md](MERGING.md) for the features, data model, settings and a merge checklist.
 
 ## Features
 
